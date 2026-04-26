@@ -314,52 +314,45 @@ def _at_a_glance(T, mo, np):
 
 @app.cell(hide_code=True)
 def _intro(T, mo):
-    mo.md(
-        rf"""
-## What the paper proves, and why the chart above works
+    mo.vstack([
+        mo.md(
+            rf"""
+## The claim, in one paragraph
 
-The standard story about a language model goes as follows. A decoder-only
-transformer maps an input sequence of tokens through many layers of attention
-and feed-forward blocks, and at the top of the stack one reads off a probability
-over the next token. The intermediate hidden states are usually treated as
-instrumental: useful for prediction, not necessarily meaningful in themselves.
-The puzzle is that several recent results suggest the opposite. Nikolaou et al.
-([arXiv:2510.15511](https://arxiv.org/abs/2510.15511), ICLR 2026) prove that the
-map from input sequences to hidden states is almost surely **injective**, meaning
-two distinct prompts of the same length never collide at the same internal
-representation, and that this property is preserved through training. Writing
-$h_t(\pi)$ for the hidden state of a transformer at layer $t$ on prompt $\pi$,
-the claim is that
-
+Nikolaou et al. ([arXiv:2510.15511](https://arxiv.org/abs/2510.15511), ICLR 2026)
+prove that the map from prompts to hidden states in a decoder-only transformer
+is almost surely **injective**: distinct prompts never collide at the same
+internal representation, and the property is preserved through training. Writing
+$h_t(\pi)$ for the hidden state at layer $t$ on prompt $\pi$, the claim is
+            """.strip()
+        ),
+        mo.md(r"""
 $$
-\pi \neq \pi' \quad\Longrightarrow\quad h_t(\pi) \neq h_t(\pi'),
+\pi \neq \pi' \quad\Longrightarrow\quad h_t(\pi) \neq h_t(\pi').
 $$
-
-with probability one over a continuous initialization, and that gradient training
-preserves the property up to a measure-zero exceptional set.
-
-The practical consequence is sharper than the statement makes it sound. If the
-map is injective then it is, in principle, invertible: anyone with access to a
-model's hidden state can reconstruct the prompt that produced it. The paper
-offers an algorithm, **SipIt**, that does this in linear time per token by
-exhaustive search over the vocabulary, which is precisely what produced the
-hero figure above. Theorem 3.2 then quantifies how much the hidden states can
-be perturbed before recovery starts to fail, framed in terms of a local
-separation margin that the geometry already supplies.
-
-The remainder of the notebook works through the claim on the smallest model
-that exhibits all of the relevant behavior: GPT-2 small, 124 M parameters.
-The argument unfolds in four stops: the **geometry** of distinct prompts in
-hidden-state space, the **one-step loss landscape** that singles out the true
-token at every position, **exact recovery** by exhaustive search over the full
-50,257-token vocabulary, and the **half-margin bound** of Theorem 3.2 that says
-when recovery breaks. Every figure was produced offline against a real GPT-2
-small and embedded as data, so the page is fully populated the moment it loads
-and every dropdown responds instantly. The vocabulary the recovery searches
-over is the full {T.VOCAB_SIZE:,}-token GPT-2 BPE; hidden states are the
-{T.HIDDEN_DIM}-dimensional vectors at layer 12.
-        """.strip()
-    )
+        """),
+        mo.md(
+            rf"""
+The practical corollary: an injective map is, in principle, *invertible*. The
+paper exhibits **SipIt**, an algorithm that does it in linear time per token by
+exhaustive search over the vocabulary. Theorem 3.2 then bounds how much the
+hidden states can be perturbed before recovery breaks. This notebook works the
+whole argument out on GPT-2 small (124 M params, {T.VOCAB_SIZE:,}-token BPE,
+{T.HIDDEN_DIM}-dim hidden state at layer 12), with **§ 6** adding a constructive
+extension we found: the same Theorem-3.2 budget is a usable steganographic
+channel.
+            """.strip()
+        ),
+        mo.callout(
+            mo.md(
+                "**The four arguments below.**  § 1 *geometry* (suggestive only) → "
+                "§ 2 *landscape* (sampled) → § 3 *recovery* (exhaustive over all "
+                f"{T.VOCAB_SIZE:,} tokens) → § 5 *robustness* (Thm 3.2) → "
+                "§ 6 *channel* (our extension)."
+            ),
+            kind="info",
+        ),
+    ], gap=0.4)
     return
 
 
@@ -369,27 +362,19 @@ over is the full {T.VOCAB_SIZE:,}-token GPT-2 BPE; hidden states are the
 def _s1_header(T, mo):
     _n_base = len(T.BASE_SENTENCES)
     _n_demo = len(T.DEMO_SENTENCES)
-    mo.md(
-        f"## First Steps: Distinct Prompts, Distinct Hidden States\n\n"
-        f"A natural starting point is to ask whether the injectivity claim is "
-        f"visible in the geometry of GPT-2 itself, before any inversion algorithm "
-        f"is brought to bear. Theorem 2.2 of the paper proves almost-sure "
-        f"injectivity at initialization, and Theorem 2.3 shows that gradient "
-        f"training preserves the property, but neither guarantee says anything "
-        f"about how *separated* distinct prompts actually are in practice. Two "
-        f"sequences could be technically distinct in hidden-state space and "
-        f"still sit on top of each other for all practical purposes, in which "
-        f"case recovery would be hopeless even though the map is formally "
-        f"one-to-one.\n\n"
-        f"The figure below takes the layer-12 hidden state of GPT-2 small for "
-        f"{_n_base} short sentences, mean-pools across positions to get a single "
-        f"{T.HIDDEN_DIM}-dimensional vector per sentence, and projects the "
-        f"result into two dimensions with PCA. Pick one of {_n_demo} demo "
-        f"sentences from the dropdown below to drop it onto the same plot as "
-        f"a black star — the projection of every demo sentence was computed "
-        f"offline against the real model and stored in the notebook, so the "
-        f"overlay updates instantly."
-    )
+    mo.vstack([
+        mo.md(
+            f"## § 1  &nbsp; Geometry &nbsp; <span style='color:#92400e;font-size:0.65em;"
+            f"background:#fef3c7;padding:2px 8px;border-radius:8px;vertical-align:middle;'>"
+            f"VERIFIER: SUGGESTIVE</span>\n\n"
+            f"Theorems 2.2 and 2.3 prove distinct prompts produce distinct hidden "
+            f"states, but say nothing about how *separated* they are. Two sequences "
+            f"could be formally distinct yet sit on top of each other in practice. "
+            f"Below: layer-12 mean-pooled states for {_n_base} base sentences, "
+            f"projected into 2-D by PCA. Pick from {_n_demo} pre-computed demo "
+            f"sentences to drop one onto the plot."
+        ),
+    ], gap=0.4)
     return
 
 
@@ -505,32 +490,28 @@ def _s1_overlay(PCA_COLORS, T, demo_picker, mo, np, plt):
 
 @app.cell(hide_code=True)
 def _s2_header(T, mo):
-    mo.md(
-        rf"""
-## The One-Step Loss Landscape
+    mo.vstack([
+        mo.md(
+            rf"""
+## § 2  &nbsp; Loss Landscape &nbsp; <span style='color:#1e3a8a;font-size:0.65em;background:#dbeafe;padding:2px 8px;border-radius:8px;vertical-align:middle;'>VERIFIER: SAMPLED</span>
 
-The injectivity proof of the paper rests on a one-step argument. Fix a prefix
-$\pi$ of tokens and ask, for every candidate next token $v$ in the vocabulary,
-what hidden state the model produces for the extended sequence $\pi \oplus v$.
-Theorem 2.2 says that the resulting map $v \mapsto h_t(\pi \oplus v)$ is
-injective with probability one, which means exactly one candidate produces
-the hidden state actually observed. Defining a per-candidate loss as the
-squared distance between its hidden state and the observed one,
-
+The injectivity proof rests on a one-step argument: fix a prefix $\pi$ and ask,
+for every candidate $v$, how close $h_t(\pi \oplus v)$ is to $h_t^{{\mathrm{{obs}}}}$.
+Define the per-candidate loss as
+            """.strip()
+        ),
+        mo.md(r"""
 $$
-\mathcal{{L}}(v) \;=\; \big\| h_t(\pi \oplus v) - h_t^{{\mathrm{{obs}}}} \big\|^2,
+\mathcal{L}(v) \;=\; \big\| h_t(\pi \oplus v) - h_t^{\mathrm{obs}} \big\|^2.
 $$
-
-the true token sits at zero and every other candidate sits strictly above it.
-The picture is a flat landscape with a single sharp well at the right token.
-
-The dropdown below selects from a handful of pre-computed runs, each of
-which sampled {T.DISTRACTOR_SAMPLES} random distractor tokens at every
-position and recorded the top-30 lowest-loss candidates. The leftmost bar
-in green is always the true token; the rest in blue collect the best-of-{T.DISTRACTOR_SAMPLES}
-distractors.
-        """.strip()
-    )
+        """),
+        mo.md(
+            f"The true token sits at zero; every other candidate sits strictly "
+            f"above. Below: {len(T.LANDSCAPES)} pre-computed configurations, "
+            f"each sampling {T.DISTRACTOR_SAMPLES} random distractors per "
+            f"position. Green = true; blue = sampled distractors."
+        ),
+    ], gap=0.4)
     return
 
 
@@ -622,44 +603,42 @@ def _s2_plot(DIST_COLOR, TRUE_COLOR, T, landscape_picker, mo, np, plt):
 
 @app.cell(hide_code=True)
 def _s3_header(T, mo):
-    mo.md(
-        rf"""
-## Exact Prompt Recovery
+    mo.vstack([
+        mo.md(
+            rf"""
+## § 3  &nbsp; Exact Recovery &nbsp; <span style='color:#064e3b;font-size:0.65em;background:#d1fae5;padding:2px 8px;border-radius:8px;vertical-align:middle;'>VERIFIER: EXHAUSTIVE</span>
 
-The previous section establishes that the true token is the unique near-zero
-minimizer of the one-step loss when {T.DISTRACTOR_SAMPLES} random distractors
-are thrown against it. The injectivity claim of the paper is stronger: it says
-the true token is the unique near-zero minimizer when **every** token in the
-vocabulary is considered. SipIt, the recovery algorithm of Section 3, takes
-this literally.
-At each position $i$ it sweeps the entire vocabulary $\mathcal{{V}}$, runs each
-candidate through the model with the recovered prefix $\hat\pi_{{<i}}$, and
-picks the token whose hidden state matches the observed one most closely:
-
+§ 2 sampled {T.DISTRACTOR_SAMPLES} distractors. The injectivity claim is
+stronger: the true token is the unique near-zero minimizer over **all**
+{T.VOCAB_SIZE:,} candidates. **SipIt** (Algorithm 1) does it greedily, position
+by position, and runs in $O(L \cdot |\mathcal{{V}}|)$:
+            """.strip()
+        ),
+        mo.md(rf"""
 $$
 \hat v_i \;=\; \arg\min_{{v \in \mathcal{{V}}}}\, \big\| h_t(\hat\pi_{{<i}} \oplus v) - h_t^{{\mathrm{{obs}}}}[i] \big\|^2.
 $$
-
-Because the loss landscape has a single sharp well at the right token, the
-procedure recovers the original prompt exactly, in time linear in the prompt
-length and the vocabulary size. Written out as pseudocode:
-
-```
-Algorithm: SipIt (Section 3 of the paper)
-Input:  observed hidden states h_obs[0..L-1], target layer t
-Output: recovered prompt π̂
-
-π̂ ← []
-for i = 0, 1, ..., L-1:
-    v* ← arg min over v in V of  ||h_t(π̂ ⊕ v) - h_obs[i]||²
-    π̂.append(v*)
-return π̂
-```
-
-The dropdown below selects from {len(T.RECOVERIES)} pre-computed full-vocabulary
-runs. Every value shown is a true minimum over all {T.VOCAB_SIZE:,} GPT-2 tokens.
-        """.strip()
-    )
+        """),
+        mo.accordion({
+            "Show pseudocode (Algorithm 1)":
+                mo.md(
+                    "```\n"
+                    "Algorithm: SipIt\n"
+                    "Input:  observed hidden states h_obs[0..L-1], target layer t\n"
+                    "Output: recovered prompt π̂\n\n"
+                    "π̂ ← []\n"
+                    "for i = 0, 1, ..., L-1:\n"
+                    "    v* ← arg min over v in V of  ||h_t(π̂ ⊕ v) - h_obs[i]||²\n"
+                    "    π̂.append(v*)\n"
+                    "return π̂\n"
+                    "```"
+                ),
+        }),
+        mo.md(
+            f"Dropdown picks one of {len(T.RECOVERIES)} pre-computed runs. "
+            f"Every value shown is a true minimum over all {T.VOCAB_SIZE:,} tokens."
+        ),
+    ], gap=0.4)
     return
 
 
@@ -728,13 +707,10 @@ def _s3_show(T, mo, recovery_picker):
 def _s4_scope(T, mo):
     mo.vstack([
         mo.md(
-            "## A Note on Scope\n\n"
-            "The exact recovery of the previous section is striking, and it is "
-            "worth being clear about exactly what it does and does not establish "
-            "before pushing the argument further. The three accordion items below "
-            "cover the three questions readers ask most often in this order: what "
-            "each section actually proves, what threat model the recovery is "
-            "operating under, and where the underlying theorems sit in the paper."
+            "## § 4  &nbsp; A Note on Scope\n\n"
+            "Before pushing further, three questions readers ask: what each "
+            "section *actually* proves, what threat model recovery operates "
+            "under, and where the theorems sit in the paper. Click to expand."
         ),
         mo.accordion({
             "1. What each section actually verifies":
@@ -791,36 +767,27 @@ def _s4_scope(T, mo):
 def _s5_header(T, mo):
     _n_noise = len(T.PERTURB_NOISE_LEVELS)
     _n_quant = len(T.PERTURB_QUANT_LEVELS)
-    _noise_set = "\\{" + ",\\,".join(str(x) for x in T.PERTURB_NOISE_LEVELS) + "\\}"
-    _quant_words = []
-    for q in T.PERTURB_QUANT_LEVELS:
-        _quant_words.append("\\text{off}" if q == 0 else str(q))
-    _quant_set = "\\{" + ",\\,".join(_quant_words) + "\\}"
-    mo.md(
-        rf"""
-## When Recovery Breaks
+    mo.vstack([
+        mo.md(
+            rf"""
+## § 5  &nbsp; When Recovery Breaks &nbsp; <span style='color:#1e3a8a;font-size:0.65em;background:#dbeafe;padding:2px 8px;border-radius:8px;vertical-align:middle;'>VERIFIER: EMPIRICAL</span>
 
-Exact recovery on clean hidden states is the easy case. A more realistic
-threat model assumes the attacker sees a *perturbed* version of the activations,
-either because they were intercepted across a noisy channel or because the
-model serialized them at reduced precision. Theorem 3.2 of the paper handles
-this setting and gives a quantitative answer: recovery succeeds whenever the
-per-position perturbation $\delta_i$ stays below **half the local separation
-margin** between the true token's hidden state and the nearest distractor's,
-
+Real attackers don't see clean hidden states. Theorem 3.2 says recovery
+survives when the per-position perturbation stays below half the local margin:
+            """.strip()
+        ),
+        mo.md(r"""
 $$
-\|\delta_i\| \;<\; \tfrac{{1}}{{2}}\, \min_{{v \neq v_i^\star}}
-  \big\| h_t(\pi_{{<i}} \oplus v) - h_t(\pi_{{<i}} \oplus v_i^\star) \big\|.
+\|\delta_i\| \;<\; \tfrac{1}{2}\, \min_{v \neq v_i^\star}
+  \big\| h_t(\pi_{<i} \oplus v) - h_t(\pi_{<i} \oplus v_i^\star) \big\|.
 $$
-
-The constant $\tfrac{{1}}{{2}}$ is sharp: adversarial perturbations exactly at the
-threshold can flip a recovery, and the bound is otherwise tight in expectation.
-The dropdowns below select from a {_n_noise} × {_n_quant} pre-computed grid of
-perturbations applied to *"{T.PERTURB_PROMPT}"*: noise radius
-$\|\delta\| \in {_noise_set}$ and quantization bits $\in {_quant_set}$.
-Every cell records what the recovery produced under that perturbation.
-        """.strip()
-    )
+        """),
+        mo.md(
+            f"The constant $\\tfrac{{1}}{{2}}$ is sharp. The dropdowns "
+            f"below pick from a **{_n_noise} × {_n_quant}** pre-computed grid "
+            f"on *\"{T.PERTURB_PROMPT}\"* — noise radius × quantization bits."
+        ),
+    ], gap=0.4)
     return
 
 
@@ -912,52 +879,39 @@ def _s5_show(TRUE_COLOR, WRONG_COLOR, T, mo, noise_picker, plt, quant_picker):
 def _s6_header(T, mo):
     _bits_per_pos = 8
     _n_pos = len(T.STEGO_TOKEN_IDS)
-    mo.md(
-        rf"""
-## § 6 · An Extension: GPT-2 Hidden States as a Steganographic Channel
+    mo.vstack([
+        mo.md(
+            rf"""
+## § 6  &nbsp; Steganographic Channel &nbsp; <span style='color:#5b21b6;font-size:0.65em;background:#ede9fe;padding:2px 8px;border-radius:8px;vertical-align:middle;'>OUR EXTENSION</span>
 
-The injectivity result of the paper is usually framed as a privacy concern,
-but it is just as naturally read as a constructive *codec*. The map from
-prompts to hidden states is the encoder; SipIt is the decoder; because the
-map is invertible the round-trip is exact and lossless.
-
-Theorem 3.2 sharpens this picture with a concrete noise budget. Any
-perturbation $\delta$ of the hidden state with
-$\|\delta\| < \tfrac{{1}}{{2}}\,\mathrm{{margin}}$ still recovers the original
-prompt, where margin is the L2 distance from the true token's hidden state
-to the *nearest* of the other {T.VOCAB_SIZE - 1:,} candidates at the same
-prefix. That slack is **unused channel capacity**. A sender can encode a
-small payload as a perturbation $\delta$ of magnitude under that bound;
-a receiver who runs SipIt on the noisy hidden state recovers the original
-prompt **and**, by computing the residual
-$\delta = h_{{\mathrm{{obs}}}} - h(\hat\pi)$, the hidden payload as well.
-
-The cell below implements that idea on the cover prompt *"{T.STEGO_PROMPT}"*
-(a {_n_pos}-token carrier). The encoding is straightforward: pick a fixed
-orthonormal basis $\{{e_1, \ldots, e_{_bits_per_pos}\}}$ in
-$\mathbb{{R}}^{{{T.HIDDEN_DIM}}}$, encode each of the {_bits_per_pos} bits
-of an ASCII byte as a sign $\sigma_i \in \{{-1, +1\}}$, and form
-
-$$
-\delta_{{\mathrm{{pos}}}} \;=\; m_{{\mathrm{{pos}}}} \sum_{{i=1}}^{{{_bits_per_pos}}} \sigma_i\, e_i,
-\qquad m_{{\mathrm{{pos}}}} \;=\; 0.9 \cdot \frac{{\mathrm{{margin}}_{{\mathrm{{pos}}}}}}{{2\sqrt{{{_bits_per_pos}}}}}.
-$$
-
-This guarantees $\|\delta_{{\mathrm{{pos}}}}\| = 0.9 \cdot \tfrac{{1}}{{2}}\,\mathrm{{margin}}$,
-strictly inside the Theorem 3.2 budget at every position. The construction
-has a clean property worth pointing out: **the L2 norm of $\delta$ does
-not depend on the payload**. The basis is orthonormal, so flipping any bit
-changes only the *direction* of $\delta$, not its magnitude. The channel
-spends the same energy whether the payload is `Hi`, `xy`, or two random
-bytes — the {_n_pos * _bits_per_pos} bits ride entirely in the **signs**
-of the projections. With {_n_pos} positions × {_bits_per_pos} bits each,
-the channel carries {_n_pos * _bits_per_pos} bits =
-{_n_pos} ASCII char{'s' if _n_pos != 1 else ''} of payload per cover prompt.
-The receiver projects the residual onto the same basis and reads off the
-signs. Type a payload below — every encoding/decoding step happens in
-pure numpy, no model call required.
-        """.strip()
-    )
+Reframe the paper. Encoder = GPT-2; decoder = SipIt; round-trip = exact.
+**Theorem 3.2's slack is unused channel capacity.** Encode a payload as
+$\delta$ with $\|\delta\| < \tfrac{{1}}{{2}}\,\mathrm{{margin}}$, transmit the
+noisy state, decode the prompt with SipIt **and** the payload from the residual.
+            """.strip()
+        ),
+        mo.callout(
+            mo.md(
+                rf"**Construction.** Fix an orthonormal basis $\{{e_1, \ldots, "
+                rf"e_{_bits_per_pos}\}}$ in $\mathbb{{R}}^{{{T.HIDDEN_DIM}}}$. "
+                rf"Encode each bit as a sign $\sigma_i \in \{{-1, +1\}}$ and "
+                rf"form $\delta_{{\mathrm{{pos}}}} = m_{{\mathrm{{pos}}}} "
+                rf"\sum_i \sigma_i e_i$ with $m_{{\mathrm{{pos}}}} = 0.9 \cdot "
+                rf"\tfrac{{\mathrm{{margin}}_{{\mathrm{{pos}}}}}}{{2\sqrt{_bits_per_pos}}}$. "
+                rf"This puts $\|\delta\|$ at exactly 90% of the Thm-3.2 budget. "
+                rf"The {_n_pos * _bits_per_pos}-bit payload rides entirely in "
+                rf"the **signs** of the projections — so $\|\delta\|$ does *not* "
+                rf"depend on payload content. Channel: **{_n_pos * _bits_per_pos} "
+                rf"bits** ({_n_pos} ASCII char{'s' if _n_pos != 1 else ''}) "
+                rf"per cover prompt *\"{T.STEGO_PROMPT}\"*."
+            ),
+            kind="info",
+        ),
+        mo.md(
+            "Type a payload below — encoding and decoding are pure numpy at "
+            "runtime, no model call required."
+        ),
+    ], gap=0.4)
     return
 
 
@@ -1133,96 +1087,60 @@ def _s6_show(DIST_COLOR, T, TRUE_COLOR, mo, np, payload_input, plt):
 
 @app.cell(hide_code=True)
 def _takeaways(T, mo, np):
-    # Compute "orders of magnitude" range from the actual landscape data
     import math as _math
-    _ratios = []
-    for results in T.LANDSCAPES.values():
-        for r in results:
-            if r["true_loss"] > 0 and r["min_rand"] > 0:
-                _ratios.append(r["min_rand"] / r["true_loss"])
-    _orders_lo = int(_math.floor(_math.log10(min(_ratios)))) if _ratios else 0
-    _orders_hi = int(_math.floor(_math.log10(max(_ratios)))) if _ratios else 0
-    _orders_phrase = (
-        f"{_orders_lo} to {_orders_hi} orders of magnitude"
-        if _orders_lo != _orders_hi else f"about {_orders_lo} orders of magnitude"
-    )
-
-    # Median min loss across all correct recoveries → headline magnitude
+    _ratios = [
+        r["min_rand"] / r["true_loss"]
+        for _results in T.LANDSCAPES.values()
+        for r in _results
+        if r["true_loss"] > 0 and r["min_rand"] > 0
+    ]
+    _orders_lo = int(_math.floor(_math.log10(min(_ratios))))
+    _orders_hi = int(_math.floor(_math.log10(max(_ratios))))
     _all_min_loss = [
         r["min_loss"]
         for prompt_results in T.RECOVERIES.values()
-        for r in prompt_results
-        if r["correct"]
+        for r in prompt_results if r["correct"]
     ]
     _med_loss = float(np.median(_all_min_loss))
     _med_exp = int(_math.floor(_math.log10(_med_loss)))
 
-    mo.md(
+    _table_md = (
         rf"""
-## Onwards
-
-A number of related observations have come together in the course of the
-preceding sections, and it may help to summarize the picture they form before
-turning to what remains open. The PCA scatter of the first section is the
-weakest of the three diagnostics but the easiest to read: distinct prompts
-land at distinct points in two dimensions, which is consistent with
-injectivity in {T.HIDDEN_DIM}. The one-step loss landscape of the second
-section is sharper and shows the true token sitting **{_orders_phrase}**
-below the nearest sampled distractor across the {len(T.LANDSCAPES)}
-pre-computed configurations, which is what makes exhaustive search
-viable. The exhaustive search of the third section is the only verifier of
-injectivity that is honest in the strict sense: at every position the
-entire vocabulary of {T.VOCAB_SIZE:,} tokens is checked, and the true
-token is the unique minimum every time. The fifth section pushes the same
-procedure into a noisier setting and reproduces the half-margin bound of
-Theorem 3.2 directly on GPT-2: small perturbations of the hidden states
-leave recovery intact, while perturbations exceeding the local separation
-margin flip individual positions in a sharp transition. The sixth section
-turns the same bound into a constructive steganographic channel.
-
-The six sections collapse into the following one-line summary, with each
-row pointing at the part of the paper it verifies and the strength of
-the evidence the notebook supplies:
-
-| Section | What it shows | Paper reference | Verifier strength |
-|---|---|---|---|
-| § 1 | Distinct prompts land at distinct points in PCA(2) | Thm 2.2 / 2.3 | suggestive only |
-| § 2 | True token is the unique near-zero minimizer vs {T.DISTRACTOR_SAMPLES} distractors | Lemma 3.1 | sampled |
-| § 3 | True token is the unique minimizer over **all** {T.VOCAB_SIZE:,} candidates | Algorithm 1 (SipIt) | exhaustive |
-| § 5 | Recovery survives $\|\delta\| < \tfrac{{1}}{{2}}\,\mathrm{{margin}}$, breaks above | Thm 3.2 | empirical |
-| § 6 | The same budget carries an ASCII payload as covert channel | Thm 3.2 (constructive) | this notebook |
-
-Several questions remain open. The notebook works exclusively with GPT-2 small,
-which is the smallest model in the family that exhibits the relevant geometry,
-but the paper's argument should hold for any decoder-only transformer with the
-same architectural features and would be worth verifying on a contemporary model.
-The recovery procedure was carried out at layer 12, the final hidden layer,
-and the question of how the separation margin varies across depth has not been
-addressed here. The threat model assumed throughout is hidden-state leakage
-from a fixed layer; recovery from logits, sampled output text, or any of the
-other interfaces production systems expose remains out of scope and is, on
-the evidence available, a much harder problem.
-
-**The picture in five lines, for the reader who has scrolled to the end:**
-
-1. Distinct prompts produce distinct hidden states in GPT-2; the geometry is
-   consistent with the almost-sure injectivity proof of Theorems 2.2 and 2.3.
-2. The one-step loss landscape has a single sharp well at the true token, with
-   distractors sitting **{_orders_phrase}** higher even at random.
-3. Exhaustive search over all {T.VOCAB_SIZE:,} GPT-2 tokens recovers the prompt
-   **exactly**, with median minimum MSE on the order of $10^{{{_med_exp}}}$.
-4. Recovery survives small perturbations of the hidden states and breaks at
-   the half-margin threshold of Theorem 3.2, in a sharp transition rather
-   than a gradual one.
-5. The same half-margin bound carries a small ASCII payload as a covert
-   channel — the cover prompt is recovered exactly *and* the payload is
-   decoded from the residual.
-
-Paper: [arXiv:2510.15511](https://arxiv.org/abs/2510.15511) · Nikolaou et al.,
-*Language Models Are Injective and Hence Invertible*, ICLR 2026. Notebook for
-the alphaXiv × marimo competition.
+| § | Claim | Reference | Strength |
+|---|---|---|:---:|
+| 1 | Distinct prompts → distinct points in PCA(2) | Thm 2.2 / 2.3 | <span style='color:#92400e;background:#fef3c7;padding:1px 6px;border-radius:6px;font-size:0.85em;'>SUGGESTIVE</span> |
+| 2 | True token is unique near-zero minimizer vs {T.DISTRACTOR_SAMPLES} distractors | Lemma 3.1 | <span style='color:#1e3a8a;background:#dbeafe;padding:1px 6px;border-radius:6px;font-size:0.85em;'>SAMPLED</span> |
+| 3 | True token is unique minimizer over **all {T.VOCAB_SIZE:,}** | Algorithm 1 | <span style='color:#064e3b;background:#d1fae5;padding:1px 6px;border-radius:6px;font-size:0.85em;'>EXHAUSTIVE</span> |
+| 5 | Recovery survives $\|\delta\| < \tfrac{{1}}{{2}}\,\mathrm{{margin}}$ | Thm 3.2 | <span style='color:#1e3a8a;background:#dbeafe;padding:1px 6px;border-radius:6px;font-size:0.85em;'>EMPIRICAL</span> |
+| 6 | Same budget carries an ASCII payload | Thm 3.2 (constructive) | <span style='color:#5b21b6;background:#ede9fe;padding:1px 6px;border-radius:6px;font-size:0.85em;'>OUR EXTENSION</span> |
         """.strip()
     )
+    _tldr_md = (
+        rf"**TL;DR.** The loss-landscape gap is **{_orders_lo}–{_orders_hi} "
+        rf"orders of magnitude**, which is what makes exhaustive search viable. "
+        rf"Median min MSE across pre-computed recoveries: $\sim 10^{{{_med_exp}}}$. "
+        rf"Recovery breaks sharply at the half-margin threshold (§ 5); the "
+        rf"leftover budget carries {len(T.STEGO_TOKEN_IDS) * 8} bits of ASCII "
+        rf"payload (§ 6)."
+    )
+    _open_md = (
+        rf"**Open questions.** The notebook uses GPT-2 small only — the argument "
+        rf"should generalize to contemporary models but hasn't been verified there. "
+        rf"Margin scaling across depth is unexplored (we work at layer 12 throughout). "
+        rf"The threat model assumed throughout is hidden-state leakage; recovery "
+        rf"from logits or sampled output is out of scope and likely much harder."
+        rf"\n\n---\n\n"
+        rf"Paper: [arXiv:2510.15511](https://arxiv.org/abs/2510.15511) · "
+        rf"Nikolaou et al., *Language Models Are Injective and Hence Invertible*, "
+        rf"ICLR 2026 · Notebook by **Peter Li · Brandon Yee · Jacob Crainic** "
+        rf"for the alphaXiv × marimo competition."
+    )
+    mo.vstack([
+        mo.md("## Onwards"),
+        mo.md(_table_md),
+        mo.callout(mo.md(_tldr_md), kind="success"),
+        mo.md(_open_md),
+    ], gap=0.5)
     return
 
 
