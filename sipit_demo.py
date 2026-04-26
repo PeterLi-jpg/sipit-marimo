@@ -491,6 +491,26 @@ def _s1_sentence_ui(mo):
 
 
 @app.cell(hide_code=True)
+def _s1_status(mo, sentence_input):
+    """Always-on status line. Has no model dependency, so it always renders.
+    Tells the user what to expect while GPT-2 is still warming up in WASM."""
+    _typed = (sentence_input.value or "").strip()
+    if not _typed:
+        _msg = (
+            "_The figure above is pre-computed, so it's already there. To add your "
+            "own sentence as a black star, type one in the box above — GPT-2 will "
+            "encode it once it has finished loading._"
+        )
+    else:
+        _msg = (
+            f"_You typed **\"{_typed}\"**. The overlay below will fill in once "
+            "GPT-2 has finished loading._"
+        )
+    mo.md(_msg)
+    return
+
+
+@app.cell(hide_code=True)
 def _s1_custom_vec(T, device, model, np, sentence_input, tokenizer, torch):
     """Project a custom sentence into the pre-fitted PCA space (requires GPT-2)."""
     custom = (sentence_input.value or "").strip()
@@ -505,61 +525,109 @@ def _s1_custom_vec(T, device, model, np, sentence_input, tokenizer, torch):
 
 
 @app.cell(hide_code=True)
-def _s1_plot(PCA_COLORS, T, custom, mo, np, plt, xy_custom):
+def _s1_plot(PCA_COLORS, T, mo, np, plt):
+    """Pre-computed PCA scatter — NO model dependency, renders the moment the
+    page loads. The user-sentence overlay lives in a separate cell below so a
+    waiting GPT-2 never blocks this figure."""
     def _draw():
-        fig, ax = plt.subplots(figsize=(9, 4.5), constrained_layout=True)
+        fig, ax = plt.subplots(figsize=(9, 4.8), constrained_layout=True)
 
         for i, (pt, label) in enumerate(zip(T.XY_BASE, T.BASE_SENTENCES)):
             color = PCA_COLORS[i % len(PCA_COLORS)]
-            ax.scatter(*pt, s=160, color=color, zorder=5)
+            ax.scatter(*pt, s=180, color=color, zorder=5,
+                       edgecolor="white", linewidth=1.2)
             ax.annotate(
                 f'"{label}"', pt,
-                xytext=(7, 5), textcoords="offset points",
-                fontsize=8.5, color=color,
+                xytext=(8, 6), textcoords="offset points",
+                fontsize=9, color=color, fontweight="500",
             )
-
-        if xy_custom is not None:
-            ax.scatter(*xy_custom, s=280, color="#111", marker="*", zorder=10,
-                       label="★  Your sentence")
-            ax.annotate(
-                f'"{custom}"', xy_custom,
-                xytext=(7, 5), textcoords="offset points",
-                fontsize=8.5, color="#111", fontweight="bold",
-            )
-            ax.legend(loc="lower right", fontsize=8.5, framealpha=0.8)
 
         ev = T.PCA_EXPLAINED_VARIANCE_RATIO
         ax.set_title(
-            f"GPT-2 layer-12 hidden states — PCA projection (mean-pooled)\n"
-            f"Minimum pairwise L2 distance across {len(T.BASE_SENTENCES)*(len(T.BASE_SENTENCES)-1)//2}"
-            f" pairs: {T.MIN_PAIRWISE_DIST:.1f}",
-            fontsize=10.5,
+            "GPT-2 layer-12 hidden states · PCA projection",
+            fontsize=11, pad=8,
         )
-        ax.set_xlabel(f"PC1 ({ev[0]:.0%} variance)")
-        ax.set_ylabel(f"PC2 ({ev[1]:.0%} variance)")
-        ax.grid(True, alpha=0.2)
+        ax.set_xlabel(f"PC1  ({ev[0]:.0%} variance)")
+        ax.set_ylabel(f"PC2  ({ev[1]:.0%} variance)")
+        ax.grid(True, alpha=0.18)
         return fig
 
-    _note = (
-        f" The black star marks your sentence, **`\"{custom}\"`**, projected into the same space."
-        if custom else
-        " Type a sentence above to drop it onto the same plot as a black star, once GPT-2 has loaded."
-    )
     mo.vstack([
         mo.center(_draw()),
         mo.md(
             f"Each of the {len(T.BASE_SENTENCES)} sentences lands at a distinct point in "
             f"the projection, with a minimum pairwise L2 distance of "
-            f"{T.MIN_PAIRWISE_DIST:.1f} units across the {len(T.BASE_SENTENCES)*(len(T.BASE_SENTENCES)-1)//2} "
-            f"pairs. The two cat sentences, which differ only in articles, sit close "
-            f"together but are still cleanly separated; the literary fragment from "
-            f'*Hamlet* lands far from the rest, as one would expect.{_note} The figure is '
-            f"consistent with injectivity but not a proof of it: a 2D projection can "
-            f"only ever rule out collisions in two coordinates, never confirm their "
-            f"absence in 768. The next section turns to a sharper diagnostic that "
-            f"actually probes the high-dimensional structure."
+            f"**{T.MIN_PAIRWISE_DIST:.1f}** units across the "
+            f"{len(T.BASE_SENTENCES)*(len(T.BASE_SENTENCES)-1)//2} pairs. The two cat "
+            f"sentences, which differ only in articles, sit close together but remain "
+            f"cleanly separated; the literary fragment from *Hamlet* lands far from "
+            f"the rest, as one would expect. The figure is consistent with injectivity "
+            f"but not a proof of it: a 2D projection can only ever rule out collisions "
+            f"in two coordinates, never confirm their absence in 768. The next section "
+            f"turns to a sharper diagnostic that actually probes the full-dimensional "
+            f"structure."
         ),
     ])
+    return
+
+
+@app.cell(hide_code=True)
+def _s1_overlay(PCA_COLORS, T, custom, mo, np, plt, xy_custom):
+    """Optional overlay: when the user has typed a sentence AND GPT-2 has
+    finished loading, draw a second figure with their sentence as a black star
+    on top of the same scatter. Shows a quiet 'still loading' note otherwise."""
+    if xy_custom is None:
+        if custom:
+            _msg = (
+                f"_GPT-2 is still loading — your sentence **\"{custom}\"** will appear "
+                "on the plot as soon as it's ready._"
+            )
+        else:
+            _msg = (
+                "_Type a sentence into the box above to project it into the same "
+                "PCA space as a black star (GPT-2 must finish loading first)._"
+            )
+        _display = mo.md(_msg)
+    else:
+        def _draw():
+            fig, ax = plt.subplots(figsize=(9, 4.8), constrained_layout=True)
+            for i, (pt, label) in enumerate(zip(T.XY_BASE, T.BASE_SENTENCES)):
+                color = PCA_COLORS[i % len(PCA_COLORS)]
+                ax.scatter(*pt, s=140, color=color, alpha=0.55, zorder=5,
+                           edgecolor="white", linewidth=1.0)
+                ax.annotate(
+                    f'"{label}"', pt,
+                    xytext=(7, 5), textcoords="offset points",
+                    fontsize=8, color=color, alpha=0.75,
+                )
+            ax.scatter(*xy_custom, s=320, color="#111", marker="*", zorder=10,
+                       edgecolor="white", linewidth=1.2,
+                       label=f'★  "{custom}"')
+            ax.annotate(
+                f'"{custom}"', xy_custom,
+                xytext=(9, 7), textcoords="offset points",
+                fontsize=10, color="#111", fontweight="bold",
+            )
+            ax.legend(loc="lower right", fontsize=9, framealpha=0.9)
+            ax.set_title(
+                f"Your sentence projected into the same PCA space",
+                fontsize=11, pad=8,
+            )
+            ev = T.PCA_EXPLAINED_VARIANCE_RATIO
+            ax.set_xlabel(f"PC1  ({ev[0]:.0%} variance)")
+            ax.set_ylabel(f"PC2  ({ev[1]:.0%} variance)")
+            ax.grid(True, alpha=0.18)
+            return fig
+
+        _display = mo.vstack([
+            mo.center(_draw()),
+            mo.md(
+                f"The black star is **\"{custom}\"**, encoded by the live GPT-2 model "
+                f"and projected into the same pre-fitted PCA basis as the eight base "
+                f"sentences. It lands at its own distinct point, as it must."
+            ),
+        ])
+    _display
     return
 
 
