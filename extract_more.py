@@ -328,6 +328,39 @@ def main():
     )
     perturb_serial = {f"{k[0]}|{k[1]}": v for k, v in p_blob.items()}
 
+    # ── Steganography channel data ────────────────────────────────────────────
+    # For § 6 of the notebook we need, for the cover prompt "Hello world":
+    #   - the clean layer-12 hidden state at every position (the "carrier")
+    #   - the TRUE half-margin (min distance from the true-token hidden state
+    #     to ANY other vocabulary token's hidden state, evaluated at the
+    #     correct prefix). This is the per-position noise budget under
+    #     Theorem 3.2: any perturbation with ||δ|| < margin/2 is decoded back
+    #     to the original token.
+    print("steganography data: clean carrier + true half-margins …", file=sys.stderr)
+    STEGO_PROMPT = "Hello world"
+    stego_ids = tokenizer.encode(STEGO_PROMPT)
+    stego_clean = []
+    stego_margins = []
+    layer_idx = 12
+    with torch.no_grad():
+        for pos in range(len(stego_ids)):
+            out = model(
+                torch.tensor(stego_ids[:pos + 1]).unsqueeze(0),
+                output_hidden_states=True,
+            )
+            true_h = out.hidden_states[layer_idx][0, -1, :].detach()
+            stego_clean.append(true_h.cpu().numpy().tolist())
+
+            # Distance from true_h to every other vocab token's hidden state
+            # at the same prefix → minimum is the per-position margin.
+            cand_h = candidate_hiddens(model, stego_ids[:pos], layer_idx)
+            diffs = cand_h - true_h.unsqueeze(0)
+            dists = diffs.norm(dim=1)
+            # Exclude the true token itself (its distance is zero)
+            true_id = stego_ids[pos]
+            dists[true_id] = float("inf")
+            stego_margins.append(float(dists.min()))
+
     out = {
         "BASE_SENTENCES": BASE_SENTENCES,
         "XY_BASE": XY_BASE.tolist(),
@@ -343,6 +376,11 @@ def main():
         "PERTURB_NOISE_LEVELS": NOISE_LEVELS,
         "PERTURB_QUANT_LEVELS": QUANT_LEVELS,
         "PERTURB_RESULTS": perturb_serial,
+        "STEGO_PROMPT": STEGO_PROMPT,
+        "STEGO_TOKEN_IDS": stego_ids,
+        "STEGO_TOKENS": [tokenizer.decode([t]) for t in stego_ids],
+        "STEGO_CLEAN_HIDDENS": stego_clean,
+        "STEGO_HALF_MARGINS": stego_margins,
     }
     with open("toolkit_data.json", "w") as f:
         json.dump(out, f, indent=1)
