@@ -483,11 +483,11 @@ def _(
 @app.cell(hide_code=True)
 def _(landscape_prompt, landscape_results, mo, np, plt):
     if landscape_results is None:
-        mo.md(
+        _display = mo.md(
             "Enter a prompt above and click **▶ Inspect Loss Landscape**."
         ).callout(kind="info")
     elif len(landscape_results) == 0:
-        mo.md("Prompt tokenized to zero tokens. Try a different prompt.").callout(
+        _display = mo.md("Prompt tokenized to zero tokens. Try a different prompt.").callout(
             kind="danger"
         )
     else:
@@ -577,7 +577,7 @@ def _(landscape_prompt, landscape_results, mo, np, plt):
             "Increase the distractor count or try a shorter prompt."
         )
 
-        mo.vstack(
+        _display = mo.vstack(
             [
                 mo.md(f"### Prompt: `{landscape_prompt}`\n\n{_summary_text}").callout(
                     kind=_summary_kind
@@ -596,6 +596,7 @@ def _(landscape_prompt, landscape_results, mo, np, plt):
                 mo.md(_table),
             ]
         )
+    _display
     return
 
 
@@ -784,12 +785,12 @@ def _(
 @app.cell(hide_code=True)
 def _(mo, recovery_config, recovery_prompt, recovery_results):
     if recovery_results is None:
-        prebaked = [
+        _prebaked = [
             {"pos": 0, "true_word": "Hello", "recovered_word": "Hello", "min_loss": 2.50e-08, "correct": True},
             {"pos": 1, "true_word": " world", "recovered_word": " world", "min_loss": 7.74e-11, "correct": True},
             {"pos": 2, "true_word": " how", "recovered_word": " how", "min_loss": 1.12e-10, "correct": True},
         ]
-        mo.vstack(
+        _display = mo.vstack(
             [
                 mo.md(
                     "### Pre-computed: Recovery of `Hello world how`\n\n"
@@ -799,12 +800,12 @@ def _(mo, recovery_config, recovery_prompt, recovery_results):
                 mo.hstack(
                     [
                         mo.stat(
-                            value=r["true_word"].strip(),
-                            label=f"Position {r['pos']}",
-                            caption=f"min MSE {r['min_loss']:.2e} · exact match",
+                            value=_r["true_word"].strip(),
+                            label=f"Position {_r['pos']}",
+                            caption=f"min MSE {_r['min_loss']:.2e} · exact match",
                             bordered=True,
                         )
-                        for r in prebaked
+                        for _r in _prebaked
                     ],
                     justify="start",
                 ),
@@ -816,9 +817,9 @@ def _(mo, recovery_config, recovery_prompt, recovery_results):
             ]
         )
     elif recovery_config["status"] == "empty":
-        mo.md("Prompt tokenized to zero tokens. Try a different input.").callout(kind="danger")
+        _display = mo.md("Prompt tokenized to zero tokens. Try a different input.").callout(kind="danger")
     elif recovery_config["status"] == "too_long":
-        mo.md(
+        _display = mo.md(
             "This exact CPU demo is capped at 6 tokens. Shorten the prompt and run it again."
         ).callout(kind="warn")
     else:
@@ -841,7 +842,7 @@ def _(mo, recovery_config, recovery_prompt, recovery_results):
             if _all_correct
             else f'Partial recovery for **`"{recovery_prompt}"`**. Check the breakdown below.'
         )
-        mo.vstack(
+        _display = mo.vstack(
             [
                 mo.md(
                     f"### Recovery of `{recovery_prompt}`\n\n"
@@ -869,6 +870,7 @@ def _(mo, recovery_config, recovery_prompt, recovery_results):
                 mo.md(_table),
             ]
         )
+    _display
     return
 
 
