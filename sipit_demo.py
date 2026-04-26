@@ -108,11 +108,13 @@ def _rcparams(T, plt):
 @app.cell(hide_code=True)
 def _title(mo):
     mo.md(
-        "# Language Models Are Injective, and Hence Invertible\n\n"
-        "Nikolaou et al., *ICLR 2026* · "
-        "[arXiv:2510.15511](https://arxiv.org/abs/2510.15511) · "
-        "A marimo notebook for the alphaXiv × marimo competition.\n\n"
-        "Notebook: **Peter Li · Brandon Yee · Jacob Crainic**"
+        "# Recovering Prompts from Hidden States, Exactly\n\n"
+        "*A live walkthrough of* Nikolaou et al., **Language Models Are "
+        "Injective and Hence Invertible** *(ICLR 2026)* — with a constructive "
+        "Theorem-3.2 channel of our own.\n\n"
+        "Notebook: **Peter Li · Brandon Yee · Jacob Crainic** &nbsp;·&nbsp; "
+        "[arXiv:2510.15511](https://arxiv.org/abs/2510.15511) &nbsp;·&nbsp; "
+        "alphaXiv × marimo competition"
     )
     return
 
@@ -120,68 +122,151 @@ def _title(mo):
 # ── Hero figure ────────────────────────────────────────────────────────────────
 
 @app.cell(hide_code=True)
-def _hero(DIST_COLOR, TRUE_COLOR, T, mo, np, plt):
-    """Headline result: 'The cat sat on the mat' recovered exactly. Six
-    columns, true-token loss vs best-of-256-distractors loss, on log scale."""
-    _results = T.LANDSCAPES["The cat sat on the mat|12"]
+def _hero_picker(T, mo):
+    """Drives panel 2 of the hero figure. Picking a position re-renders only
+    the landscape panel; the other three panels stay still."""
+    _h_landscape = T.LANDSCAPES["The cat sat on the mat|12"]
+    _h_options = {
+        f"position {i}: {r['true_token']!r}": i
+        for i, r in enumerate(_h_landscape)
+    }
+    hero_pos = mo.ui.dropdown(
+        options=_h_options,
+        value=f"position 2: {_h_landscape[2]['true_token']!r}",
+        label='Dissect a position of *"The cat sat on the mat"* (drives panel 2 below)',
+        full_width=True,
+    )
+    hero_pos
+    return (hero_pos,)
 
-    def _draw():
-        _fig, _ax = plt.subplots(figsize=(11, 3.6), constrained_layout=True)
-        _bar_w = 0.36
-        _xs = np.arange(len(_results))
-        _true_vals = np.array([max(r["true_loss"], 1e-15) for r in _results])
-        _dist_vals = np.array([
-            r["min_rand"] if r["min_rand"] > 0 else r["median_rand"]
-            for r in _results
-        ])
-        _ax.bar(_xs - _bar_w/2, _true_vals, _bar_w, color=TRUE_COLOR,
-               label="true token", zorder=3, edgecolor="white", linewidth=1.0)
-        _ax.bar(_xs + _bar_w/2, _dist_vals, _bar_w, color=DIST_COLOR,
-               alpha=0.85, label="best of 256 distractors", zorder=3,
-               edgecolor="white", linewidth=1.0)
-        for x, tv, dv in zip(_xs, _true_vals, _dist_vals):
-            _ratio = dv / tv
-            _ax.annotate(
-                f"×{_ratio:.0e}".replace("e+0", "e").replace("e+", "e"),
-                xy=(x, dv), xytext=(0, 6), textcoords="offset points",
-                ha="center", va="bottom", fontsize=8.5, color="#374151",
-            )
-        _ax.set_xticks(_xs)
-        _ax.set_xticklabels([f'"{r["true_token"]}"' for r in _results],
-                           color=TRUE_COLOR, fontweight="bold", fontsize=11)
-        _ax.set_yscale("log")
-        _ax.set_ylabel("MSE loss  (log)", fontsize=10)
-        _ax.set_title(
-            'Recovered: "The cat sat on the mat"   ·   '
-            "GPT-2 layer 12   ·   exact match at every position",
-            fontsize=12, fontweight="600", pad=10,
-        )
-        _ax.grid(True, alpha=0.18, axis="y", zorder=0)
-        _ax.legend(loc="upper right", fontsize=9, framealpha=0.95)
-        _ax.set_ylim(bottom=10 ** (np.floor(np.log10(_true_vals.min())) - 0.5))
-        return _fig
+
+@app.cell(hide_code=True)
+def _hero(DIST_COLOR, TRUE_COLOR, T, hero_pos, mo, np, plt):
+    """Four-panel hero, one column per stop in the argument:
+       § 1 Geometry  — distinct prompts go to distinct hidden states (PCA)
+       § 2 Landscape — single sharp well at the true token (driven by slider)
+       § 3 Recovery  — full-vocab argmin returns the prompt exactly
+       § 5/6 Budget  — Theorem 3.2 slack carries an ASCII payload (§6 channel)
+
+    Panel 2 is reactive on hero_pos; the others are fixed pre-computed data.
+    All values come from the embedded T blob — nothing is hardcoded."""
+    _landscape = T.LANDSCAPES["The cat sat on the mat|12"]
+    _selected = _landscape[hero_pos.value]
+
+    _fig = plt.figure(figsize=(14.5, 3.6), constrained_layout=True)
+    _gs = _fig.add_gridspec(1, 4, width_ratios=[1, 1, 1, 1])
+
+    # ── Panel 1: geometry (PCA scatter, all base sentences) ─────────────
+    _ax1 = _fig.add_subplot(_gs[0, 0])
+    for _i, _pt in enumerate(T.XY_BASE):
+        _color = T.PCA_COLORS[_i % len(T.PCA_COLORS)]
+        _ax1.scatter(*_pt, s=70, color=_color,
+                     edgecolor="white", linewidth=1.1, zorder=3)
+    _ax1.set_title("§ 1  Geometry", fontsize=10.5, fontweight="600",
+                   color="#1e293b", pad=4, loc="left")
+    _ax1.set_xticks([]); _ax1.set_yticks([])
+    _ax1.set_xlabel(
+        f"{len(T.BASE_SENTENCES)} prompts in PCA(2) — distinct points",
+        fontsize=8.5, color="#6b7280",
+    )
+    _ax1.grid(True, alpha=0.15)
+
+    # ── Panel 2: loss landscape at the user-selected position ───────────
+    _ax2 = _fig.add_subplot(_gs[0, 1])
+    _vals = np.array(_selected["top30_losses"])
+    _plotted = np.where(_vals <= 0, 1e-15, _vals)
+    _colors2 = [TRUE_COLOR if _it else DIST_COLOR
+                for _it in _selected["top30_is_true"]]
+    _ax2.bar(range(len(_vals)), _plotted,
+             color=_colors2, alpha=0.88, width=0.85,
+             edgecolor="white", linewidth=0.4, zorder=3)
+    _ax2.set_yscale("log")
+    _ax2.set_title(
+        f"§ 2  Landscape — pos {hero_pos.value}  {_selected['true_token']!r}",
+        fontsize=10.5, fontweight="600", color="#1e293b", pad=4, loc="left",
+    )
+    _ax2.set_xlabel(
+        f"top-30 of {_selected['sample_count']} candidates · log MSE",
+        fontsize=8.5, color="#6b7280",
+    )
+    _ax2.set_xticks([])
+    _ax2.grid(True, alpha=0.15, axis="y", zorder=0)
+
+    # ── Panel 3: recovered prompt — every position's true MSE ──────────
+    _ax3 = _fig.add_subplot(_gs[0, 2])
+    _xs = np.arange(len(_landscape))
+    _true_losses = np.array([max(r["true_loss"], 1e-15) for r in _landscape])
+    _ax3.bar(_xs, _true_losses, color=TRUE_COLOR, alpha=0.9, width=0.7,
+             edgecolor="white", linewidth=0.8, zorder=3)
+    _ax3.set_yscale("log")
+    _ax3.set_xticks(_xs)
+    _ax3.set_xticklabels(
+        [r["true_token"].strip() or "∅" for r in _landscape],
+        rotation=0, fontsize=9, color=TRUE_COLOR, fontweight="bold",
+    )
+    _ax3.set_title(
+        "§ 3  Recovery — exact at every position",
+        fontsize=10.5, fontweight="600", color="#1e293b", pad=4, loc="left",
+    )
+    _ax3.set_xlabel(
+        f"min MSE over all {T.VOCAB_SIZE:,} tokens (log)",
+        fontsize=8.5, color="#6b7280",
+    )
+    _ax3.grid(True, alpha=0.15, axis="y", zorder=0)
+    _ax3.set_ylim(bottom=10 ** (np.floor(np.log10(_true_losses.min())) - 0.5))
+
+    # ── Panel 4: Theorem 3.2 budget vs the §6 channel usage ──────────────
+    _ax4 = _fig.add_subplot(_gs[0, 3])
+    _half_margins = np.array(T.STEGO_HALF_MARGINS) / 2
+    _stego_xs = np.arange(len(T.STEGO_TOKEN_IDS))
+    _used = _half_margins * 0.9
+    _w = 0.36
+    _ax4.bar(_stego_xs - _w/2, _half_margins, _w,
+             color="#a78bfa", alpha=0.78, edgecolor="white", linewidth=0.8,
+             label="½ margin", zorder=3)
+    _ax4.bar(_stego_xs + _w/2, _used, _w,
+             color=DIST_COLOR, alpha=0.9, edgecolor="white", linewidth=0.8,
+             label="§6 ‖δ‖", zorder=3)
+    _ax4.set_xticks(_stego_xs)
+    _ax4.set_xticklabels(
+        [t.strip() or "∅" for t in T.STEGO_TOKENS],
+        fontsize=9, color="#1e293b", fontweight="500",
+    )
+    _ax4.set_title(
+        "§ 5/6  Thm 3.2 budget",
+        fontsize=10.5, fontweight="600", color="#1e293b", pad=4, loc="left",
+    )
+    _ax4.set_xlabel(
+        f"covers {len(T.STEGO_TOKEN_IDS) * 8} payload bits per cover prompt",
+        fontsize=8.5, color="#6b7280",
+    )
+    _ax4.legend(loc="upper left", fontsize=8, framealpha=0.95)
+    _ax4.grid(True, alpha=0.15, axis="y", zorder=0)
 
     mo.vstack([
         mo.md(
-            f"## The headline result\n\n"
-            f"Given **only** the layer-12 hidden states of GPT-2 and no other "
-            f"information, full-vocabulary search over all {T.VOCAB_SIZE:,} "
-            f"tokens recovers the prompt that produced them — **exactly**, "
-            f"position by position. Every green bar below is the true token's "
-            f"MSE loss at that position; every blue bar is the lowest loss "
-            f"achieved by {T.DISTRACTOR_SAMPLES} random distractor tokens. "
-            f"The annotated number is the multiplicative gap, in orders of "
-            f"magnitude, between the two."
+            f"## The headline result, in four panels\n\n"
+            f"Each panel previews one section of the notebook. "
+            f"**§ 1 Geometry** — the {len(T.BASE_SENTENCES)} base prompts "
+            f"land at distinct points in a 2-D projection of the "
+            f"{T.HIDDEN_DIM}-dimensional layer-12 hidden space. "
+            f"**§ 2 Landscape** — the per-candidate MSE loss at the selected "
+            f"position has a sharp well at the true token, with distractors "
+            f"orders of magnitude above. "
+            f"**§ 3 Recovery** — full vocabulary search over {T.VOCAB_SIZE:,} "
+            f"GPT-2 tokens returns the prompt **exactly** at every position. "
+            f"**§ 5/6 Budget** — Theorem 3.2's half-margin slack is a real "
+            f"channel: § 6 spends 90% of it to carry an ASCII payload as a "
+            f"covert message."
         ),
-        mo.center(_draw()),
+        mo.center(_fig),
         mo.md(
-            "The figure is the entire paper compressed into one chart: the true "
-            "token sits in a sharp well that no other vocabulary item comes close to, "
-            "so picking the minimum is unambiguous and the prompt comes back out. "
-            "The remainder of the notebook explains *why* the wells are this sharp, "
-            "lets you flip through pre-computed runs on other prompts, and works "
-            "out what happens when the hidden states are corrupted before the "
-            "attacker sees them."
+            f"The picture above is the entire notebook in one row. The dropdown "
+            f"redraws panel 2 only — every other panel is fixed pre-computed "
+            f"data and renders the moment the page loads. The full sections "
+            f"below expand each panel into its own argument and provide "
+            f"interactive dropdowns to flip through other prompts, layers, "
+            f"perturbation levels, and steganographic payloads."
         ),
     ], gap=0.5)
     return
