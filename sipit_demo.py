@@ -374,14 +374,123 @@ def _model_utils(DynamicCache, torch):
 def _title(mo):
     mo.md(
         "# Language Models Are Injective, and Hence Invertible\n\n"
-        "Nikolaou et al., *ICLR 2026* · [arXiv:2510.15511](https://arxiv.org/abs/2510.15511)"
-        " · A marimo notebook for the alphaXiv × marimo competition.\n\n"
-        "---\n\n"
-        "**Four stops:**\n"
-        "1. The geometry of distinct prompts in hidden-state space, made visible on real GPT-2.\n"
-        "2. The one-step loss landscape that singles out the true token at every position.\n"
-        "3. Exact prompt recovery by exhaustive search over the full 50,257-token vocabulary.\n"
-        "4. Where the recovery breaks, and what Theorem 3.2 promises about the half-margin bound.\n"
+        "Nikolaou et al., *ICLR 2026* · "
+        "[arXiv:2510.15511](https://arxiv.org/abs/2510.15511) · "
+        "A marimo notebook for the alphaXiv × marimo competition."
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _hero(DIST_COLOR, TRUE_COLOR, T, mo, np, plt):
+    """The hero — what every reader sees first.
+
+    A single dramatic figure showing the result of full-vocabulary recovery on
+    'The cat sat on the mat' at GPT-2 layer 12: six tokens, six near-zero true
+    losses, distractor floors three to twelve orders of magnitude above. The
+    headline number is the gap, and the gap is what makes inversion possible.
+
+    No model dependency: everything here is pre-computed in sipit_toolkit and
+    renders the moment the page loads.
+    """
+    _results = T.LANDSCAPE_RESULTS
+    _ncols = len(_results)
+
+    def _draw():
+        fig, ax = plt.subplots(figsize=(11, 3.6), constrained_layout=True)
+
+        _bar_w = 0.36
+        _xs = np.arange(_ncols)
+        _true_vals = np.array([
+            max(r["true_loss"], 1e-15) for r in _results
+        ])
+        _dist_vals = np.array([
+            r["min_rand"] if r["min_rand"] > 0 else r["median_rand"]
+            for r in _results
+        ])
+
+        ax.bar(_xs - _bar_w / 2, _true_vals, _bar_w,
+               color=TRUE_COLOR, label="true token", zorder=3,
+               edgecolor="white", linewidth=1.0)
+        ax.bar(_xs + _bar_w / 2, _dist_vals, _bar_w,
+               color=DIST_COLOR, alpha=0.85, label="best of 256 distractors", zorder=3,
+               edgecolor="white", linewidth=1.0)
+
+        # Annotate the gap between the two bars at each position
+        for x, tv, dv in zip(_xs, _true_vals, _dist_vals):
+            _ratio = dv / tv
+            ax.annotate(
+                f"×{_ratio:.0e}".replace("e+0", "e").replace("e+", "e"),
+                xy=(x, dv),
+                xytext=(0, 6),
+                textcoords="offset points",
+                ha="center", va="bottom",
+                fontsize=8.5, color="#374151",
+            )
+
+        # Token labels on the x-axis, recovered word in true-color
+        ax.set_xticks(_xs)
+        ax.set_xticklabels(
+            [f'"{r["true_token"]}"' for r in _results],
+            color=TRUE_COLOR, fontweight="bold", fontsize=11,
+        )
+        ax.set_yscale("log")
+        ax.set_ylabel("MSE loss  (log)", fontsize=10)
+        ax.set_title(
+            'Recovered: "The cat sat on the mat"   ·   '
+            "GPT-2 layer 12   ·   exact match at every position",
+            fontsize=12, fontweight="600", pad=10,
+        )
+        ax.grid(True, alpha=0.18, axis="y", zorder=0)
+        ax.legend(loc="upper right", fontsize=9, framealpha=0.95)
+        ax.set_ylim(bottom=10 ** (np.floor(np.log10(_true_vals.min())) - 0.5))
+        return fig
+
+    mo.vstack([
+        mo.md(
+            "## The headline result\n\n"
+            "Given **only** the layer-12 hidden states of GPT-2 and no other "
+            "information, full-vocabulary search over all 50,257 tokens recovers "
+            "the prompt that produced them — **exactly**, position by position. "
+            "Every green bar below is the true token's MSE loss at that position; "
+            "every blue bar is the lowest loss achieved by 256 random distractor "
+            "tokens. The annotated number is the multiplicative gap, in orders "
+            "of magnitude, between the two."
+        ),
+        mo.center(_draw()),
+        mo.md(
+            "The figure is the entire paper compressed into one chart: the true "
+            "token sits in a sharp well that no other vocabulary item comes close to, "
+            "so picking the minimum is unambiguous and the prompt comes back out. "
+            "The remainder of the notebook explains *why* the wells are this sharp, "
+            "tests the recovery on prompts you choose, and works out what happens "
+            "when the hidden states are corrupted before the attacker sees them."
+        ),
+    ], gap=0.5)
+    return
+
+
+@app.cell(hide_code=True)
+def _at_a_glance(mo):
+    """Compact stat row that anchors the four headline numbers right under the
+    hero figure, before the essay starts. Each box names a concrete quantity
+    that recurs throughout the notebook."""
+    mo.hstack(
+        [
+            mo.stat(value="124 M", label="GPT-2 small parameters",
+                    caption="the smallest model showing the geometry",
+                    bordered=True),
+            mo.stat(value="50,257", label="Tokens searched per position",
+                    caption="full vocabulary, no shortcuts",
+                    bordered=True),
+            mo.stat(value="≈ 10⁻¹⁰", label="Min MSE at recovered token",
+                    caption="versus distractors of order 10⁰–10²",
+                    bordered=True),
+            mo.stat(value="½ margin", label="Theorem 3.2 budget",
+                    caption="recovery survives below this perturbation",
+                    bordered=True),
+        ],
+        justify="space-between", wrap=True,
     )
     return
 
@@ -390,12 +499,14 @@ def _title(mo):
 def _intro(mo):
     mo.md(
         r"""
-The standard story about a language model goes as follows. A decoder-only transformer
-maps an input sequence of tokens through many layers of attention and feed-forward
-blocks, and at the top of the stack one reads off a probability over the next token.
-The intermediate hidden states are usually treated as instrumental: useful for
-prediction, not necessarily meaningful in themselves. The puzzle is that several
-recent results suggest the opposite. Nikolaou et al.
+## What the paper proves, and why the chart above works
+
+The standard story about a language model goes as follows. A decoder-only
+transformer maps an input sequence of tokens through many layers of attention
+and feed-forward blocks, and at the top of the stack one reads off a probability
+over the next token. The intermediate hidden states are usually treated as
+instrumental: useful for prediction, not necessarily meaningful in themselves.
+The puzzle is that several recent results suggest the opposite. Nikolaou et al.
 ([arXiv:2510.15511](https://arxiv.org/abs/2510.15511), ICLR 2026) prove that the
 map from input sequences to hidden states is almost surely **injective**, meaning
 two distinct prompts of the same length never collide at the same internal
@@ -413,42 +524,22 @@ preserves the property up to a measure-zero exceptional set.
 The practical consequence is sharper than the statement makes it sound. If the
 map is injective then it is, in principle, invertible: anyone with access to a
 model's hidden state can reconstruct the prompt that produced it. The paper
-offers an algorithm, **SipIt**, that does this in linear time per token by exhaustive
-search over the vocabulary. Theorem 3.2 then quantifies how much the hidden
-states can be perturbed before recovery starts to fail, framed in terms of a
-local separation margin that the geometry already supplies.
+offers an algorithm, **SipIt**, that does this in linear time per token by
+exhaustive search over the vocabulary, which is precisely what produced the
+hero figure above. Theorem 3.2 then quantifies how much the hidden states can
+be perturbed before recovery starts to fail, framed in terms of a local
+separation margin that the geometry already supplies.
 
-The remainder of this notebook works through the claim on the smallest model
-that exhibits all of the relevant behavior: GPT-2 small, 124 M parameters, run
-on CPU. The setting is rich enough to demonstrate every piece of the argument
-the paper develops, and small enough that the inversion can be carried out live
-in a browser tab.
+The remainder of the notebook works through the claim on the smallest model that
+exhibits all of the relevant behavior: GPT-2 small, 124 M parameters, run on CPU.
+The argument unfolds in four stops: the **geometry** of distinct prompts in
+hidden-state space, the **one-step loss landscape** that singles out the true
+token at every position, **exact recovery** by exhaustive search over the full
+50,257-token vocabulary, and the **half-margin bound** of Theorem 3.2 that says
+when recovery breaks. Every figure is interactive once GPT-2 has finished loading,
+and the notebook is small enough that the inversion can be carried out live in
+a browser tab.
         """.strip()
-    )
-    return
-
-
-# ── At-a-glance numbers ───────────────────────────────────────────────────────
-
-@app.cell(hide_code=True)
-def _at_a_glance(mo):
-    """A compact stat row that anchors the headline numbers up front."""
-    mo.hstack(
-        [
-            mo.stat(value="124 M", label="GPT-2 small parameters",
-                    caption="the smallest model showing the geometry",
-                    bordered=True),
-            mo.stat(value="50,257", label="Tokens searched per position",
-                    caption="full vocabulary, no shortcuts",
-                    bordered=True),
-            mo.stat(value="≈ 10⁻¹⁰", label="Min MSE at recovered token",
-                    caption="versus distractors of order 10⁰–10²",
-                    bordered=True),
-            mo.stat(value="½ margin", label="Theorem 3.2 budget",
-                    caption="recovery survives below this perturbation",
-                    bordered=True),
-        ],
-        justify="space-between", wrap=True,
     )
     return
 
