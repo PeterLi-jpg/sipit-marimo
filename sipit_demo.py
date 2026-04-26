@@ -638,7 +638,7 @@ def _(mo):
     )
     recover_batch_slider = mo.ui.slider(
         steps=[128, 256, 512, 1024],
-        value=512,
+        value=1024,
         label="Candidate batch size",
         show_value=True,
         full_width=True,
@@ -650,6 +650,12 @@ def _(mo):
             mo.md("### Controls"),
             recover_input,
             mo.hstack([recover_layer_slider, recover_batch_slider], widths="equal"),
+            mo.md(
+                "⏱ **Heads up:** full-vocabulary search over 50,257 tokens takes "
+                "roughly **20–50 s per token** in-browser (WASM/CPU). "
+                "The pre-computed result above loads instantly — use the live run "
+                "to verify your own short prompt (1–2 tokens is fastest)."
+            ).callout(kind="warn"),
             recover_btn,
         ],
         gap=0.6,
