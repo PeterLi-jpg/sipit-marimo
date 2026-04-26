@@ -1184,8 +1184,8 @@ def _takeaways(T, mo, np):
         rf"\n\n---\n\n"
         rf"Paper: [arXiv:2510.15511](https://arxiv.org/abs/2510.15511) · "
         rf"Nikolaou et al., *Language Models Are Injective and Hence Invertible*, "
-        rf"ICLR 2026 · Notebook by **Peter Li · Brandon Yee · Jacob Crainic** "
-        rf"for the alphaXiv × marimo competition."
+        rf"ICLR 2026."
+        rf"\n\n*Notebook by Peter Li · Brandon Yee · Jacob Crainic for the alphaXiv × marimo competition.*"
     )
     mo.vstack([
         mo.md("## Onwards"),
