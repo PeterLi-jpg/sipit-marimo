@@ -359,9 +359,9 @@ def _(mo):
 
 @app.cell
 def _(mo, prompt_input, tokenizer):
-    ids = tokenizer.encode(prompt_input.value or "")
-    preview = "  ".join(f"`{tokenizer.decode([token])}`" for token in ids) if ids else "_empty_"
-    mo.md(f"**Tokens ({len(ids)}):** {preview}")
+    _ids = tokenizer.encode(prompt_input.value or "")
+    preview = "  ".join(f"`{tokenizer.decode([t])}`" for t in _ids) if _ids else "_empty_"
+    mo.md(f"**Tokens ({len(_ids)}):** {preview}")
     return
 
 
@@ -380,98 +380,97 @@ def _(
     tokenizer,
     torch,
 ):
-    if not run_btn.value:
-        landscape_prompt = None
-        landscape_results = None
-        return landscape_prompt, landscape_results
+    landscape_prompt = None
+    landscape_results = None
 
-    prompt = (prompt_input.value or "").strip()
-    layer_idx = int(layer_slider.value)
-    sample_count = int(n_sample_slider.value)
+    if run_btn.value:
+        prompt = (prompt_input.value or "").strip()
+        layer_idx = int(layer_slider.value)
+        sample_count = int(n_sample_slider.value)
 
-    true_ids_list = tokenizer.encode(prompt)
-    if not true_ids_list:
-        landscape_prompt = prompt
-        landscape_results = []
-        return landscape_prompt, landscape_results
+        true_ids_list = tokenizer.encode(prompt)
+        if not true_ids_list:
+            landscape_prompt = prompt
+            landscape_results = []
+        else:
+            true_ids = torch.tensor(true_ids_list).unsqueeze(0).to(device)
+            vocab_size = model.wte.weight.shape[0]
+            batch_size = 512
 
-    true_ids = torch.tensor(true_ids_list).unsqueeze(0).to(device)
-    vocab_size = model.wte.weight.shape[0]
-    batch_size = 512
+            with torch.no_grad():
+                target_output = model(true_ids, output_hidden_states=True)
+            target_all = target_output.hidden_states[layer_idx][0].detach()
 
-    with torch.no_grad():
-        target_output = model(true_ids, output_hidden_states=True)
-    target_all = target_output.hidden_states[layer_idx][0].detach()
+            results = []
+            with mo.status.progress_bar(total=len(true_ids_list), title="Computing loss landscapes...") as bar:
+                for token_idx in range(len(true_ids_list)):
+                    target_hidden = target_all[token_idx]
+                    true_id = true_ids_list[token_idx]
 
-    results = []
-    with mo.status.progress_bar(total=len(true_ids_list), title="Computing loss landscapes...") as bar:
-        for token_idx in range(len(true_ids_list)):
-            target_hidden = target_all[token_idx]
-            true_id = true_ids_list[token_idx]
+                    distractors = sample_without_true(
+                        vocab_size=vocab_size,
+                        sample_size=sample_count,
+                        true_id=true_id,
+                        device=device,
+                    )
+                    candidates = torch.cat(
+                        [torch.tensor([true_id], device=device), distractors]
+                    )
 
-            distractors = sample_without_true(
-                vocab_size=vocab_size,
-                sample_size=sample_count,
-                true_id=true_id,
-                device=device,
-            )
-            candidates = torch.cat(
-                [torch.tensor([true_id], device=device), distractors]
-            )
+                    prefix_ids = true_ids_list[:token_idx]
+                    prefix_cache = None
+                    if prefix_ids:
+                        prefix_tensor = torch.tensor(prefix_ids, device=device).unsqueeze(0)
+                        with torch.no_grad():
+                            prefix_output = model(prefix_tensor, use_cache=True)
+                        prefix_cache = prefix_output.past_key_values
 
-            prefix_ids = true_ids_list[:token_idx]
-            prefix_cache = None
-            if prefix_ids:
-                prefix_tensor = torch.tensor(prefix_ids, device=device).unsqueeze(0)
-                with torch.no_grad():
-                    prefix_output = model(prefix_tensor, use_cache=True)
-                prefix_cache = prefix_output.past_key_values
+                    losses = []
+                    for start in range(0, len(candidates), batch_size):
+                        end = min(start + batch_size, len(candidates))
+                        batch_candidates = candidates[start:end].unsqueeze(1)
+                        current_batch = end - start
 
-            losses = []
-            for start in range(0, len(candidates), batch_size):
-                end = min(start + batch_size, len(candidates))
-                batch_candidates = candidates[start:end].unsqueeze(1)
-                current_batch = end - start
+                        with torch.no_grad():
+                            if prefix_cache is not None:
+                                expanded_cache = expand_past_key_values(prefix_cache, current_batch)
+                                hidden = model(
+                                    batch_candidates,
+                                    past_key_values=expanded_cache,
+                                    output_hidden_states=True,
+                                ).hidden_states[layer_idx][:, -1, :]
+                            else:
+                                hidden = model(
+                                    batch_candidates,
+                                    output_hidden_states=True,
+                                ).hidden_states[layer_idx][:, -1, :]
 
-                with torch.no_grad():
-                    if prefix_cache is not None:
-                        expanded_cache = expand_past_key_values(prefix_cache, current_batch)
-                        hidden = model(
-                            batch_candidates,
-                            past_key_values=expanded_cache,
-                            output_hidden_states=True,
-                        ).hidden_states[layer_idx][:, -1, :]
-                    else:
-                        hidden = model(
-                            batch_candidates,
-                            output_hidden_states=True,
-                        ).hidden_states[layer_idx][:, -1, :]
+                        batch_losses = ((hidden - target_hidden.unsqueeze(0)) ** 2).mean(dim=1)
+                        losses.append(batch_losses.cpu())
 
-                batch_losses = ((hidden - target_hidden.unsqueeze(0)) ** 2).mean(dim=1)
-                losses.append(batch_losses.cpu())
+                    losses = torch.cat(losses).numpy()
+                    true_loss = float(losses[0])
+                    random_losses = losses[1:]
+                    rank = int((losses < true_loss).sum() + 1)
 
-            losses = torch.cat(losses).numpy()
-            true_loss = float(losses[0])
-            random_losses = losses[1:]
-            rank = int((losses < true_loss).sum() + 1)
+                    results.append(
+                        {
+                            "tok_idx": token_idx,
+                            "true_id": true_id,
+                            "true_token": tokenizer.decode([true_id]),
+                            "true_loss": true_loss,
+                            "rand_losses": random_losses,
+                            "rank": rank,
+                            "min_rand": float(random_losses.min()) if len(random_losses) else float("nan"),
+                            "median_rand": float(np.median(random_losses)) if len(random_losses) else float("nan"),
+                            "sample_count": int(len(random_losses)),
+                        }
+                    )
+                    bar.update()
 
-            results.append(
-                {
-                    "tok_idx": token_idx,
-                    "true_id": true_id,
-                    "true_token": tokenizer.decode([true_id]),
-                    "true_loss": true_loss,
-                    "rand_losses": random_losses,
-                    "rank": rank,
-                    "min_rand": float(random_losses.min()) if len(random_losses) else float("nan"),
-                    "median_rand": float(np.median(random_losses)) if len(random_losses) else float("nan"),
-                    "sample_count": int(len(random_losses)),
-                }
-            )
-            bar.update()
+            landscape_prompt = prompt
+            landscape_results = results
 
-    landscape_prompt = prompt
-    landscape_results = results
     return landscape_prompt, landscape_results
 
 
@@ -481,119 +480,116 @@ def _(landscape_prompt, landscape_results, mo, np, plt):
         mo.md(
             "Enter a prompt above and click **▶ Inspect Loss Landscape**."
         ).callout(kind="info")
-        return
-
-    if len(landscape_results) == 0:
+    elif len(landscape_results) == 0:
         mo.md("Prompt tokenized to zero tokens. Try a different prompt.").callout(
             kind="danger"
         )
-        return
+    else:
+        results = landscape_results
+        token_count = len(results)
+        distractor_count = results[0]["sample_count"]
 
-    results = landscape_results
-    token_count = len(results)
-    distractor_count = results[0]["sample_count"]
-
-    ncols = min(token_count, 6)
-    fig1, axes = plt.subplots(
-        1, ncols, figsize=(3.0 * ncols, 3.8), constrained_layout=True
-    )
-    if ncols == 1:
-        axes = [axes]
-
-    for result, axis in zip(results[:ncols], axes):
-        all_losses = np.concatenate([[result["true_loss"]], result["rand_losses"]])
-        sorted_idx = np.argsort(all_losses)
-        top30 = sorted_idx[:30]
-        colors = ["#2ecc71" if idx == 0 else "#3498db" for idx in top30]
-        values = all_losses[top30]
-        plotted_values = np.where(values <= 0, 1e-15, values)
-
-        axis.bar(
-            range(len(top30)),
-            plotted_values,
-            color=colors,
-            alpha=0.85,
-            width=0.8,
+        ncols = min(token_count, 6)
+        fig1, axes = plt.subplots(
+            1, ncols, figsize=(3.0 * ncols, 3.8), constrained_layout=True
         )
-        axis.set_yscale("log")
-        axis.set_xlabel("Top sampled ranks")
-        axis.set_ylabel("MSE loss (log)")
-        token_display = repr(result["true_token"]).strip("'")
-        axis.set_title(
-            f"Position {result['tok_idx']} -> `{token_display}`\n"
-            f"True loss: {result['true_loss']:.1e}   Rank: {result['rank']}",
-            fontsize=9,
+        if ncols == 1:
+            axes = [axes]
+
+        for result, axis in zip(results[:ncols], axes):
+            all_losses = np.concatenate([[result["true_loss"]], result["rand_losses"]])
+            sorted_idx = np.argsort(all_losses)
+            top30 = sorted_idx[:30]
+            colors = ["#2ecc71" if idx == 0 else "#3498db" for idx in top30]
+            values = all_losses[top30]
+            plotted_values = np.where(values <= 0, 1e-15, values)
+
+            axis.bar(
+                range(len(top30)),
+                plotted_values,
+                color=colors,
+                alpha=0.85,
+                width=0.8,
+            )
+            axis.set_yscale("log")
+            axis.set_xlabel("Top sampled ranks")
+            axis.set_ylabel("MSE loss (log)")
+            token_display = repr(result["true_token"]).strip("'")
+            axis.set_title(
+                f"Position {result['tok_idx']} -> `{token_display}`\n"
+                f"True loss: {result['true_loss']:.1e}   Rank: {result['rank']}",
+                fontsize=9,
+            )
+            axis.set_xticks([])
+
+        fig2, axis2 = plt.subplots(
+            figsize=(max(4, token_count * 1.2), 3.5), constrained_layout=True
         )
-        axis.set_xticks([])
-
-    fig2, axis2 = plt.subplots(
-        figsize=(max(4, token_count * 1.2), 3.5), constrained_layout=True
-    )
-    ratios = [
-        result["median_rand"] / max(result["true_loss"], 1e-15)
-        for result in results
-    ]
-    token_labels = [repr(result["true_token"]).strip("'") for result in results]
-    bars = axis2.bar(token_labels, ratios, color="#2ecc71", alpha=0.85)
-    axis2.set_yscale("log")
-    axis2.set_xlabel("Token")
-    axis2.set_ylabel("Sampled margin ratio")
-    axis2.set_title(
-        "Sampled margin ratio = median distractor loss / true-token loss",
-        fontsize=9.5,
-    )
-    axis2.grid(True, alpha=0.2, axis="y")
-    for bar, value in zip(bars, ratios):
-        axis2.text(
-            bar.get_x() + bar.get_width() / 2,
-            value * 1.3,
-            f"{value:.0e}",
-            ha="center",
-            va="bottom",
-            fontsize=7.5,
-        )
-
-    rows = "\n".join(
-        f"| `{result['true_token']}` | {result['true_loss']:.2e} | "
-        f"{result['min_rand']:.2e} | {result['median_rand']:.2e} | "
-        f"**{result['rank']}** |"
-        for result in results
-    )
-    table = (
-        "| Token | True loss | Min distractor | Median distractor | Rank |\n"
-        "|---|---:|---:|---:|---:|\n"
-        + rows
-    )
-
-    all_rank1 = all(result["rank"] == 1 for result in results)
-    summary_kind = "success" if all_rank1 else "warn"
-    summary_text = (
-        f"Across **{distractor_count} sampled distractors per position**, the true token ranked "
-        "**#1** everywhere."
-        if all_rank1
-        else "At least one position did not rank the true token first inside the sampled set. "
-        "Increase the distractor count or try a shorter prompt."
-    )
-
-    mo.vstack(
-        [
-            mo.md(f"### Prompt: `{landscape_prompt}`\n\n{summary_text}").callout(
-                kind=summary_kind
-            ),
-            mo.md(
-                "Green bars are the true tokens; blue bars are sampled distractors. "
-                "This section visualizes **sampled** one-step separability, not a full-vocabulary proof."
-            ),
-            fig1,
-            mo.md(
-                "Higher sampled margin ratios mean the true token is much easier to identify than a "
-                "typical sampled impostor."
-            ),
-            fig2,
-            mo.md("### Per-position breakdown"),
-            mo.md(table),
+        ratios = [
+            result["median_rand"] / max(result["true_loss"], 1e-15)
+            for result in results
         ]
-    )
+        token_labels = [repr(result["true_token"]).strip("'") for result in results]
+        bars = axis2.bar(token_labels, ratios, color="#2ecc71", alpha=0.85)
+        axis2.set_yscale("log")
+        axis2.set_xlabel("Token")
+        axis2.set_ylabel("Sampled margin ratio")
+        axis2.set_title(
+            "Sampled margin ratio = median distractor loss / true-token loss",
+            fontsize=9.5,
+        )
+        axis2.grid(True, alpha=0.2, axis="y")
+        for bar, value in zip(bars, ratios):
+            axis2.text(
+                bar.get_x() + bar.get_width() / 2,
+                value * 1.3,
+                f"{value:.0e}",
+                ha="center",
+                va="bottom",
+                fontsize=7.5,
+            )
+
+        rows = "\n".join(
+            f"| `{result['true_token']}` | {result['true_loss']:.2e} | "
+            f"{result['min_rand']:.2e} | {result['median_rand']:.2e} | "
+            f"**{result['rank']}** |"
+            for result in results
+        )
+        table = (
+            "| Token | True loss | Min distractor | Median distractor | Rank |\n"
+            "|---|---:|---:|---:|---:|\n"
+            + rows
+        )
+
+        all_rank1 = all(result["rank"] == 1 for result in results)
+        summary_kind = "success" if all_rank1 else "warn"
+        summary_text = (
+            f"Across **{distractor_count} sampled distractors per position**, the true token ranked "
+            "**#1** everywhere."
+            if all_rank1
+            else "At least one position did not rank the true token first inside the sampled set. "
+            "Increase the distractor count or try a shorter prompt."
+        )
+
+        mo.vstack(
+            [
+                mo.md(f"### Prompt: `{landscape_prompt}`\n\n{summary_text}").callout(
+                    kind=summary_kind
+                ),
+                mo.md(
+                    "Green bars are the true tokens; blue bars are sampled distractors. "
+                    "This section visualizes **sampled** one-step separability, not a full-vocabulary proof."
+                ),
+                fig1,
+                mo.md(
+                    "Higher sampled margin ratios mean the true token is much easier to identify than a "
+                    "typical sampled impostor."
+                ),
+                fig2,
+                mo.md("### Per-position breakdown"),
+                mo.md(table),
+            ]
+        )
     return
 
 
@@ -657,9 +653,9 @@ def _(mo):
 
 @app.cell
 def _(mo, recover_input, tokenizer):
-    ids = tokenizer.encode(recover_input.value or "")
-    preview = "  ".join(f"`{tokenizer.decode([token])}`" for token in ids) if ids else "_empty_"
-    mo.md(f"**Tokens ({len(ids)}):** {preview}")
+    _ids = tokenizer.encode(recover_input.value or "")
+    preview = "  ".join(f"`{tokenizer.decode([t])}`" for t in _ids) if _ids else "_empty_"
+    mo.md(f"**Tokens ({len(_ids)}):** {preview}")
     return
 
 
@@ -676,115 +672,106 @@ def _(
     tokenizer,
     torch,
 ):
-    if not recover_btn.value:
-        recovery_prompt = None
-        recovery_results = None
-        recovery_config = None
-        return recovery_prompt, recovery_results, recovery_config
+    recovery_prompt = None
+    recovery_results = None
+    recovery_config = None
 
-    prompt = (recover_input.value or "").strip()
-    layer_idx = int(recover_layer_slider.value)
-    batch_size = int(recover_batch_slider.value)
-    config = {
-        "layer": layer_idx,
-        "batch_size": batch_size,
-        "status": "ok",
-    }
+    if recover_btn.value:
+        prompt = (recover_input.value or "").strip()
+        layer_idx = int(recover_layer_slider.value)
+        batch_size = int(recover_batch_slider.value)
+        config = {"layer": layer_idx, "batch_size": batch_size, "status": "ok"}
 
-    true_ids = tokenizer.encode(prompt)
-    token_count = len(true_ids)
-    vocab_size = model.wte.weight.shape[0]
+        true_ids = tokenizer.encode(prompt)
+        token_count = len(true_ids)
+        vocab_size = model.wte.weight.shape[0]
 
-    if token_count == 0:
-        config["status"] = "empty"
-        recovery_prompt = prompt
-        recovery_results = []
-        recovery_config = config
-        return recovery_prompt, recovery_results, recovery_config
+        if token_count == 0:
+            config["status"] = "empty"
+            recovery_prompt = prompt
+            recovery_results = []
+            recovery_config = config
+        elif token_count > 6:
+            config["status"] = "too_long"
+            recovery_prompt = prompt
+            recovery_results = []
+            recovery_config = config
+        else:
+            targets = []
+            with torch.no_grad():
+                for position in range(token_count):
+                    prefix_tensor = torch.tensor(
+                        true_ids[: position + 1], device=device
+                    ).unsqueeze(0)
+                    target_output = model(prefix_tensor, output_hidden_states=True)
+                    targets.append(target_output.hidden_states[layer_idx][0, -1, :].detach())
 
-    if token_count > 6:
-        config["status"] = "too_long"
-        recovery_prompt = prompt
-        recovery_results = []
-        recovery_config = config
-        return recovery_prompt, recovery_results, recovery_config
+            recovered = []
+            results = []
 
-    targets = []
-    with torch.no_grad():
-        for position in range(token_count):
-            prefix_tensor = torch.tensor(
-                true_ids[: position + 1], device=device
-            ).unsqueeze(0)
-            target_output = model(prefix_tensor, output_hidden_states=True)
-            targets.append(target_output.hidden_states[layer_idx][0, -1, :].detach())
+            with mo.status.progress_bar(total=token_count, title="Recovering tokens...") as bar:
+                for position in range(token_count):
+                    target_hidden = targets[position]
 
-    recovered = []
-    results = []
+                    prefix_cache = None
+                    if recovered:
+                        prefix_tensor = torch.tensor(recovered, device=device).unsqueeze(0)
+                        with torch.no_grad():
+                            prefix_output = model(prefix_tensor, use_cache=True)
+                        prefix_cache = prefix_output.past_key_values
 
-    with mo.status.progress_bar(total=token_count, title="Recovering tokens...") as bar:
-        for position in range(token_count):
-            target_hidden = targets[position]
+                    best_token = 0
+                    best_loss = float("inf")
 
-            prefix_cache = None
-            if recovered:
-                prefix_tensor = torch.tensor(recovered, device=device).unsqueeze(0)
-                with torch.no_grad():
-                    prefix_output = model(prefix_tensor, use_cache=True)
-                prefix_cache = prefix_output.past_key_values
+                    for start in range(0, vocab_size, batch_size):
+                        end = min(start + batch_size, vocab_size)
+                        current_batch = end - start
+                        candidates = torch.arange(start, end, device=device).unsqueeze(1)
 
-            best_token = 0
-            best_loss = float("inf")
+                        with torch.no_grad():
+                            if prefix_cache is not None:
+                                expanded_cache = expand_past_key_values(prefix_cache, current_batch)
+                                hidden = model(
+                                    candidates,
+                                    past_key_values=expanded_cache,
+                                    output_hidden_states=True,
+                                ).hidden_states[layer_idx][:, -1, :]
+                            else:
+                                hidden = model(
+                                    candidates,
+                                    output_hidden_states=True,
+                                ).hidden_states[layer_idx][:, -1, :]
 
-            for start in range(0, vocab_size, batch_size):
-                end = min(start + batch_size, vocab_size)
-                current_batch = end - start
-                candidates = torch.arange(start, end, device=device).unsqueeze(1)
+                        losses = ((hidden - target_hidden) ** 2).mean(dim=1)
+                        best_idx = int(losses.argmin())
+                        if float(losses[best_idx]) < best_loss:
+                            best_loss = float(losses[best_idx])
+                            best_token = start + best_idx
 
-                with torch.no_grad():
-                    if prefix_cache is not None:
-                        expanded_cache = expand_past_key_values(prefix_cache, current_batch)
-                        hidden = model(
-                            candidates,
-                            past_key_values=expanded_cache,
-                            output_hidden_states=True,
-                        ).hidden_states[layer_idx][:, -1, :]
-                    else:
-                        hidden = model(
-                            candidates,
-                            output_hidden_states=True,
-                        ).hidden_states[layer_idx][:, -1, :]
+                    recovered.append(best_token)
+                    results.append(
+                        {
+                            "pos": position,
+                            "true_id": true_ids[position],
+                            "recovered_id": best_token,
+                            "true_word": tokenizer.decode([true_ids[position]]),
+                            "recovered_word": tokenizer.decode([best_token]),
+                            "min_loss": best_loss,
+                            "correct": best_token == true_ids[position],
+                        }
+                    )
+                    bar.update()
 
-                losses = ((hidden - target_hidden) ** 2).mean(dim=1)
-                best_idx = int(losses.argmin())
-                if float(losses[best_idx]) < best_loss:
-                    best_loss = float(losses[best_idx])
-                    best_token = start + best_idx
+            recovery_prompt = prompt
+            recovery_results = results
+            recovery_config = config
 
-            recovered.append(best_token)
-            results.append(
-                {
-                    "pos": position,
-                    "true_id": true_ids[position],
-                    "recovered_id": best_token,
-                    "true_word": tokenizer.decode([true_ids[position]]),
-                    "recovered_word": tokenizer.decode([best_token]),
-                    "min_loss": best_loss,
-                    "correct": best_token == true_ids[position],
-                }
-            )
-            bar.update()
-
-    recovery_prompt = prompt
-    recovery_results = results
-    recovery_config = config
     return recovery_prompt, recovery_results, recovery_config
 
 
 @app.cell
 def _(mo, recovery_config, recovery_prompt, recovery_results):
     if recovery_results is None:
-        # Pre-computed on GPT-2 (layer 12, batch 512, no ln_f) — shown so the
-        # result is visible immediately without waiting for the CPU run.
         prebaked = [
             {"pos": 0, "true_word": "Hello", "recovered_word": "Hello", "min_loss": 2.50e-08, "correct": True},
             {"pos": 1, "true_word": " world", "recovered_word": " world", "min_loss": 7.74e-11, "correct": True},
@@ -816,69 +803,60 @@ def _(mo, recovery_config, recovery_prompt, recovery_results):
                 ).callout(kind="neutral"),
             ]
         )
-        return
-
-    if recovery_config["status"] == "empty":
-        mo.md("Prompt tokenized to zero tokens. Try a different input.").callout(
-            kind="danger"
-        )
-        return
-
-    if recovery_config["status"] == "too_long":
+    elif recovery_config["status"] == "empty":
+        mo.md("Prompt tokenized to zero tokens. Try a different input.").callout(kind="danger")
+    elif recovery_config["status"] == "too_long":
         mo.md(
             "This exact CPU demo is capped at 6 tokens. Shorten the prompt and run it again."
         ).callout(kind="warn")
-        return
-
-    results = recovery_results
-    all_correct = all(result["correct"] for result in results)
-    recovered_str = "".join(result["recovered_word"] for result in results)
-    rows = "\n".join(
-        f"| {result['pos']} | `{result['true_word']}` | `{result['recovered_word']}` "
-        f"| {result['min_loss']:.2e} | {'✓' if result['correct'] else '✗'} |"
-        for result in results
-    )
-    table = (
-        "| Pos | True token | Recovered | Minimum loss | Match |\n"
-        "|---|---|---|---:|:---:|\n"
-        + rows
-    )
-
-    kind = "success" if all_correct else "danger"
-    message = (
-        f'Recovered **`"{recovered_str}"`** exactly from leaked hidden states.'
-        if all_correct
-        else f'Partial recovery for **`"{recovery_prompt}"`**. Check the breakdown below.'
-    )
-
-    mo.vstack(
-        [
-            mo.md(
-                f"### Recovery of `{recovery_prompt}`\n\n"
-                f"Layer: **{recovery_config['layer']}** · batch size: **{recovery_config['batch_size']}**\n\n"
-                f"{message}"
-            ).callout(kind=kind),
-            mo.hstack(
-                [
-                    mo.stat(
-                        value=result["recovered_word"].strip() or result["recovered_word"],
-                        label=f"Position {result['pos']}",
-                        caption=f"min MSE {result['min_loss']:.2e} · {'✓' if result['correct'] else '✗ wrong'}",
-                        bordered=True,
-                    )
-                    for result in results
-                ],
-                justify="start",
-                wrap=True,
-            ),
-            mo.md(
-                "Full search over all 50,257 GPT-2 tokens at each position. "
-                "The minimum-MSE token is selected as the reconstruction."
-            ).callout(kind="neutral"),
-            mo.md("### Per-position breakdown"),
-            mo.md(table),
-        ]
-    )
+    else:
+        results = recovery_results
+        all_correct = all(result["correct"] for result in results)
+        recovered_str = "".join(result["recovered_word"] for result in results)
+        rows = "\n".join(
+            f"| {result['pos']} | `{result['true_word']}` | `{result['recovered_word']}` "
+            f"| {result['min_loss']:.2e} | {'✓' if result['correct'] else '✗'} |"
+            for result in results
+        )
+        table = (
+            "| Pos | True token | Recovered | Minimum loss | Match |\n"
+            "|---|---|---|---:|:---:|\n"
+            + rows
+        )
+        kind = "success" if all_correct else "danger"
+        message = (
+            f'Recovered **`"{recovered_str}"`** exactly from leaked hidden states.'
+            if all_correct
+            else f'Partial recovery for **`"{recovery_prompt}"`**. Check the breakdown below.'
+        )
+        mo.vstack(
+            [
+                mo.md(
+                    f"### Recovery of `{recovery_prompt}`\n\n"
+                    f"Layer: **{recovery_config['layer']}** · batch size: **{recovery_config['batch_size']}**\n\n"
+                    f"{message}"
+                ).callout(kind=kind),
+                mo.hstack(
+                    [
+                        mo.stat(
+                            value=result["recovered_word"].strip() or result["recovered_word"],
+                            label=f"Position {result['pos']}",
+                            caption=f"min MSE {result['min_loss']:.2e} · {'✓' if result['correct'] else '✗ wrong'}",
+                            bordered=True,
+                        )
+                        for result in results
+                    ],
+                    justify="start",
+                    wrap=True,
+                ),
+                mo.md(
+                    "Full search over all 50,257 GPT-2 tokens at each position. "
+                    "The minimum-MSE token is selected as the reconstruction."
+                ).callout(kind="neutral"),
+                mo.md("### Per-position breakdown"),
+                mo.md(table),
+            ]
+        )
     return
 
 
@@ -1001,9 +979,9 @@ def _(mo):
 
 @app.cell
 def _(mo, robust_input, tokenizer):
-    ids = tokenizer.encode(robust_input.value or "")
-    preview = "  ".join(f"`{tokenizer.decode([token])}`" for token in ids) if ids else "_empty_"
-    mo.md(f"**Tokens ({len(ids)}):** {preview}")
+    _ids = tokenizer.encode(robust_input.value or "")
+    preview = "  ".join(f"`{tokenizer.decode([t])}`" for t in _ids) if _ids else "_empty_"
+    mo.md(f"**Tokens ({len(_ids)}):** {preview}")
     return
 
 
@@ -1025,210 +1003,200 @@ def _(
     tokenizer,
     torch,
 ):
-    if not robust_btn.value:
-        robust_prompt = None
-        robust_results = None
-        robust_config = None
-        return robust_prompt, robust_results, robust_config
+    robust_prompt = None
+    robust_results = None
+    robust_config = None
 
-    prompt = (robust_input.value or "").strip()
-    layer_idx = int(robust_layer_slider.value)
-    batch_size = int(robust_batch_slider.value)
-    noise_radius = float(robust_noise_slider.value)
-    quant_bits = int(robust_quant_slider.value)
-    seed = int(robust_seed_slider.value)
+    if robust_btn.value:
+        prompt = (robust_input.value or "").strip()
+        layer_idx = int(robust_layer_slider.value)
+        batch_size = int(robust_batch_slider.value)
+        noise_radius = float(robust_noise_slider.value)
+        quant_bits = int(robust_quant_slider.value)
+        seed = int(robust_seed_slider.value)
 
-    config = {
-        "layer": layer_idx,
-        "batch_size": batch_size,
-        "noise_radius": noise_radius,
-        "quant_bits": quant_bits,
-        "seed": seed,
-        "status": "ok",
-    }
+        config = {
+            "layer": layer_idx,
+            "batch_size": batch_size,
+            "noise_radius": noise_radius,
+            "quant_bits": quant_bits,
+            "seed": seed,
+            "status": "ok",
+        }
 
-    true_ids = tokenizer.encode(prompt)
-    token_count = len(true_ids)
-    vocab_size = model.wte.weight.shape[0]
+        true_ids = tokenizer.encode(prompt)
+        token_count = len(true_ids)
+        vocab_size = model.wte.weight.shape[0]
 
-    if token_count == 0:
-        config["status"] = "empty"
-        robust_prompt = prompt
-        robust_results = []
-        robust_config = config
-        return robust_prompt, robust_results, robust_config
+        if token_count == 0:
+            config["status"] = "empty"
+            robust_prompt = prompt
+            robust_results = []
+            robust_config = config
+        elif token_count > 6:
+            config["status"] = "too_long"
+            robust_prompt = prompt
+            robust_results = []
+            robust_config = config
+        else:
+            clean_targets = []
+            with torch.no_grad():
+                for position in range(token_count):
+                    prefix_tensor = torch.tensor(
+                        true_ids[: position + 1], device=device
+                    ).unsqueeze(0)
+                    out = model(prefix_tensor, output_hidden_states=True)
+                    clean_targets.append(out.hidden_states[layer_idx][0, -1, :].detach())
 
-    if token_count > 6:
-        config["status"] = "too_long"
-        robust_prompt = prompt
-        robust_results = []
-        robust_config = config
-        return robust_prompt, robust_results, robust_config
+            perturbed_targets = []
+            perturbation_norms = []
+            for position, target in enumerate(clean_targets):
+                noisy = add_noise_to_tensor(target, noise_radius, seed=seed * 1000 + position)
+                quantized = quantize_tensor(noisy, quant_bits)
+                perturbed_targets.append(quantized)
+                perturbation_norms.append(float((quantized - target).norm()))
 
-    # Compute clean iterative targets (same definition as § 3)
-    clean_targets = []
-    with torch.no_grad():
-        for position in range(token_count):
-            prefix_tensor = torch.tensor(
-                true_ids[: position + 1], device=device
-            ).unsqueeze(0)
-            out = model(prefix_tensor, output_hidden_states=True)
-            clean_targets.append(out.hidden_states[layer_idx][0, -1, :].detach())
+            recovered = []
+            results = []
 
-    # Perturb: add noise then quantize
-    perturbed_targets = []
-    perturbation_norms = []
-    for position, target in enumerate(clean_targets):
-        noisy = add_noise_to_tensor(target, noise_radius, seed=seed * 1000 + position)
-        quantized = quantize_tensor(noisy, quant_bits)
-        perturbed_targets.append(quantized)
-        perturbation_norms.append(float((quantized - target).norm()))
+            with mo.status.progress_bar(
+                total=token_count, title="Recovering from perturbed hidden states..."
+            ) as bar:
+                for position in range(token_count):
+                    target_hidden = perturbed_targets[position]
 
-    # Full-vocabulary search on the perturbed targets
-    recovered = []
-    results = []
+                    prefix_cache = None
+                    if recovered:
+                        prefix_tensor = torch.tensor(recovered, device=device).unsqueeze(0)
+                        with torch.no_grad():
+                            prefix_output = model(prefix_tensor, use_cache=True)
+                        prefix_cache = prefix_output.past_key_values
 
-    with mo.status.progress_bar(
-        total=token_count, title="Recovering from perturbed hidden states..."
-    ) as bar:
-        for position in range(token_count):
-            target_hidden = perturbed_targets[position]
+                    best_token = 0
+                    best_loss = float("inf")
 
-            prefix_cache = None
-            if recovered:
-                prefix_tensor = torch.tensor(recovered, device=device).unsqueeze(0)
-                with torch.no_grad():
-                    prefix_output = model(prefix_tensor, use_cache=True)
-                prefix_cache = prefix_output.past_key_values
+                    for start in range(0, vocab_size, batch_size):
+                        end = min(start + batch_size, vocab_size)
+                        current_batch = end - start
+                        candidates = torch.arange(start, end, device=device).unsqueeze(1)
 
-            best_token = 0
-            best_loss = float("inf")
+                        with torch.no_grad():
+                            if prefix_cache is not None:
+                                expanded_cache = expand_past_key_values(
+                                    prefix_cache, current_batch
+                                )
+                                hidden = model(
+                                    candidates,
+                                    past_key_values=expanded_cache,
+                                    output_hidden_states=True,
+                                ).hidden_states[layer_idx][:, -1, :]
+                            else:
+                                hidden = model(
+                                    candidates,
+                                    output_hidden_states=True,
+                                ).hidden_states[layer_idx][:, -1, :]
 
-            for start in range(0, vocab_size, batch_size):
-                end = min(start + batch_size, vocab_size)
-                current_batch = end - start
-                candidates = torch.arange(start, end, device=device).unsqueeze(1)
+                        losses = ((hidden - target_hidden) ** 2).mean(dim=1)
+                        best_idx = int(losses.argmin())
+                        if float(losses[best_idx]) < best_loss:
+                            best_loss = float(losses[best_idx])
+                            best_token = start + best_idx
 
-                with torch.no_grad():
-                    if prefix_cache is not None:
-                        expanded_cache = expand_past_key_values(
-                            prefix_cache, current_batch
-                        )
-                        hidden = model(
-                            candidates,
-                            past_key_values=expanded_cache,
-                            output_hidden_states=True,
-                        ).hidden_states[layer_idx][:, -1, :]
-                    else:
-                        hidden = model(
-                            candidates,
-                            output_hidden_states=True,
-                        ).hidden_states[layer_idx][:, -1, :]
+                    recovered.append(best_token)
+                    results.append(
+                        {
+                            "pos": position,
+                            "true_id": true_ids[position],
+                            "recovered_id": best_token,
+                            "true_word": tokenizer.decode([true_ids[position]]),
+                            "recovered_word": tokenizer.decode([best_token]),
+                            "perturbation_norm": perturbation_norms[position],
+                            "min_loss": best_loss,
+                            "correct": best_token == true_ids[position],
+                        }
+                    )
+                    bar.update()
 
-                losses = ((hidden - target_hidden) ** 2).mean(dim=1)
-                best_idx = int(losses.argmin())
-                if float(losses[best_idx]) < best_loss:
-                    best_loss = float(losses[best_idx])
-                    best_token = start + best_idx
+            robust_prompt = prompt
+            robust_results = results
+            robust_config = config
 
-            recovered.append(best_token)
-            results.append(
-                {
-                    "pos": position,
-                    "true_id": true_ids[position],
-                    "recovered_id": best_token,
-                    "true_word": tokenizer.decode([true_ids[position]]),
-                    "recovered_word": tokenizer.decode([best_token]),
-                    "perturbation_norm": perturbation_norms[position],
-                    "min_loss": best_loss,
-                    "correct": best_token == true_ids[position],
-                }
-            )
-            bar.update()
-
-    robust_prompt = prompt
-    robust_results = results
-    robust_config = config
     return robust_prompt, robust_results, robust_config
 
 
 @app.cell
 def _(mo, plt, robust_config, robust_prompt, robust_results):
     if robust_results is None:
-        mo.md(
+        _display = mo.md(
             "Enter a prompt above and click **▶ Run Perturbed Recovery**. "
             "Start with noise = 0 and quant = off to confirm the clean baseline, "
             "then increase noise or lower bit-width to watch recovery fail."
         ).callout(kind="info")
-        return
+    elif robust_config["status"] == "empty":
+        _display = mo.md("Prompt tokenized to zero tokens.").callout(kind="danger")
+    elif robust_config["status"] == "too_long":
+        _display = mo.md("Capped at 6 tokens. Shorten the prompt.").callout(kind="warn")
+    else:
+        _results = robust_results
+        _all_correct = all(r["correct"] for r in _results)
+        _recovered_str = "".join(r["recovered_word"] for r in _results)
 
-    if robust_config["status"] == "empty":
-        mo.md("Prompt tokenized to zero tokens.").callout(kind="danger")
-        return
+        _noise_str = f"noise radius {robust_config['noise_radius']:.2f}"
+        _quant_str = (
+            f"{robust_config['quant_bits']}-bit quantization"
+            if robust_config["quant_bits"] > 0
+            else "no quantization"
+        )
+        _kind = "success" if _all_correct else "danger"
+        _message = (
+            f"Recovery **succeeded** with {_noise_str}, {_quant_str}. "
+            f"Recovered: **`\"{_recovered_str}\"`**"
+            if _all_correct
+            else f"Recovery **failed** with {_noise_str}, {_quant_str}. "
+            f"Recovered `\"{_recovered_str}\"` (expected `\"{robust_prompt}\"`)"
+        )
 
-    if robust_config["status"] == "too_long":
-        mo.md("Capped at 6 tokens. Shorten the prompt.").callout(kind="warn")
-        return
+        _rows = "\n".join(
+            f"| {r['pos']} | `{r['true_word']}` | `{r['recovered_word']}` "
+            f"| {r['perturbation_norm']:.4f} | {r['min_loss']:.2e} | {'✓' if r['correct'] else '✗'} |"
+            for r in _results
+        )
+        _table = (
+            "| Pos | True token | Recovered | Perturbation ‖δ‖ | Min loss | Match |\n"
+            "|---|---|---|---:|---:|:---:|\n" + _rows
+        )
 
-    results = robust_results
-    all_correct = all(r["correct"] for r in results)
-    recovered_str = "".join(r["recovered_word"] for r in results)
+        _fig, _ax = plt.subplots(
+            figsize=(max(4.0, len(_results) * 1.5), 3.5), constrained_layout=True
+        )
+        _token_labels = [repr(r["true_word"]).strip("'") for r in _results]
+        _norms = [r["perturbation_norm"] for r in _results]
+        _bar_colors = ["#2ecc71" if r["correct"] else "#e74c3c" for r in _results]
+        _ax.bar(_token_labels, _norms, color=_bar_colors, alpha=0.85)
+        _ax.set_xlabel("Token")
+        _ax.set_ylabel("Perturbation ‖δ‖")
+        _ax.set_title(
+            "Per-position perturbation norm\n(green = recovered correctly, red = wrong)",
+            fontsize=9.5,
+        )
+        _ax.grid(True, alpha=0.2, axis="y")
 
-    noise_str = f"noise radius {robust_config['noise_radius']:.2f}"
-    quant_str = (
-        f"{robust_config['quant_bits']}-bit quantization"
-        if robust_config["quant_bits"] > 0
-        else "no quantization"
-    )
-    kind = "success" if all_correct else "danger"
-    message = (
-        f"Recovery **succeeded** with {noise_str}, {quant_str}. "
-        f"Recovered: **`\"{recovered_str}\"`**"
-        if all_correct
-        else f"Recovery **failed** with {noise_str}, {quant_str}. "
-        f"Recovered `\"{recovered_str}\"` (expected `\"{robust_prompt}\"`)"
-    )
-
-    rows = "\n".join(
-        f"| {r['pos']} | `{r['true_word']}` | `{r['recovered_word']}` "
-        f"| {r['perturbation_norm']:.4f} | {r['min_loss']:.2e} | {'✓' if r['correct'] else '✗'} |"
-        for r in results
-    )
-    table = (
-        "| Pos | True token | Recovered | Perturbation ‖δ‖ | Min loss | Match |\n"
-        "|---|---|---|---:|---:|:---:|\n" + rows
-    )
-
-    fig, ax = plt.subplots(
-        figsize=(max(4.0, len(results) * 1.5), 3.5), constrained_layout=True
-    )
-    token_labels = [repr(r["true_word"]).strip("'") for r in results]
-    norms = [r["perturbation_norm"] for r in results]
-    bar_colors = ["#2ecc71" if r["correct"] else "#e74c3c" for r in results]
-    ax.bar(token_labels, norms, color=bar_colors, alpha=0.85)
-    ax.set_xlabel("Token")
-    ax.set_ylabel("Perturbation ‖δ‖")
-    ax.set_title(
-        "Per-position perturbation norm\n(green = recovered correctly, red = wrong)",
-        fontsize=9.5,
-    )
-    ax.grid(True, alpha=0.2, axis="y")
-
-    mo.vstack(
-        [
-            mo.md(
-                f"### Perturbed Recovery of `{robust_prompt}`\n\n{message}"
-            ).callout(kind=kind),
-            mo.md(
-                "Theorem 3.2 guarantees exact recovery when the perturbation at each position "
-                "is below half the local separation margin. Increase noise or lower the "
-                "bit-width to watch recovery break."
-            ).callout(kind="neutral"),
-            fig,
-            mo.md("### Per-position breakdown"),
-            mo.md(table),
-        ]
-    )
+        _display = mo.vstack(
+            [
+                mo.md(
+                    f"### Perturbed Recovery of `{robust_prompt}`\n\n{_message}"
+                ).callout(kind=_kind),
+                mo.md(
+                    "Theorem 3.2 guarantees exact recovery when the perturbation at each position "
+                    "is below half the local separation margin. Increase noise or lower the "
+                    "bit-width to watch recovery break."
+                ).callout(kind="neutral"),
+                _fig,
+                mo.md("### Per-position breakdown"),
+                mo.md(_table),
+            ]
+        )
+    _display
     return
 
 
