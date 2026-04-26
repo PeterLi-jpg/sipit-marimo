@@ -1,0 +1,5 @@
+__pycache__/
+__marimo__/
+*.pyc
+*.pyo
+.DS_Store
