@@ -104,7 +104,7 @@ def _(DynamicCache, torch):
 
 @app.cell(hide_code=True)
 def _(GPT2Model, GPT2Tokenizer, mo, nn, torch):
-    with mo.status.spinner(title="Loading GPT-2 on CPU (~500 MB on first run)..."):
+    with mo.status.spinner(title="Initialising Python runtime and loading GPT-2 (~2–4 min on first visit, cached after)..."):
         tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
         model = GPT2Model.from_pretrained("gpt2")
 
