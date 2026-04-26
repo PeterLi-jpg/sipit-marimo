@@ -126,15 +126,13 @@ def _hero_picker(T, mo):
     """Drives panel 2 of the hero figure. Picking a position re-renders only
     the landscape panel; the other three panels stay still."""
     _h_landscape = T.LANDSCAPES["The cat sat on the mat|12"]
-    _h_options = {
-        f"position {i}: {r['true_token']!r}": i
-        for i, r in enumerate(_h_landscape)
-    }
-    hero_pos = mo.ui.dropdown(
-        options=_h_options,
-        value=f"position 2: {_h_landscape[2]['true_token']!r}",
+    hero_pos = mo.ui.slider(
+        start=0,
+        stop=len(_h_landscape) - 1,
+        step=1,
+        value=2,
         label='Dissect a position of *"The cat sat on the mat"* (drives panel 2 below)',
-        full_width=True,
+        show_value=True,
     )
     hero_pos
     return (hero_pos,)
@@ -793,17 +791,17 @@ $$
 
 @app.cell(hide_code=True)
 def _s5_picker(T, mo):
-    noise_picker = mo.ui.dropdown(
-        options=[str(x) for x in T.PERTURB_NOISE_LEVELS],
-        value="0.0",
+    noise_picker = mo.ui.slider(
+        steps=T.PERTURB_NOISE_LEVELS,
+        value=0.0,
         label="Noise radius ‖δ‖",
-        full_width=True,
+        show_value=True,
     )
-    quant_picker = mo.ui.dropdown(
-        options=[str(x) for x in T.PERTURB_QUANT_LEVELS],
-        value="0",
+    quant_picker = mo.ui.slider(
+        steps=sorted(T.PERTURB_QUANT_LEVELS),
+        value=0,
         label="Quantization bits  (0 = off)",
-        full_width=True,
+        show_value=True,
     )
     mo.hstack([noise_picker, quant_picker], widths="equal")
     return noise_picker, quant_picker
