@@ -374,6 +374,9 @@ def _model_utils(DynamicCache, torch):
 def _title(mo):
     mo.md(
         "# Language Models Are Injective, and Hence Invertible\n\n"
+        "Nikolaou et al., *ICLR 2026* · [arXiv:2510.15511](https://arxiv.org/abs/2510.15511)"
+        " · A marimo notebook for the alphaXiv × marimo competition.\n\n"
+        "---\n\n"
         "**Four stops:**\n"
         "1. The geometry of distinct prompts in hidden-state space, made visible on real GPT-2.\n"
         "2. The one-step loss landscape that singles out the true token at every position.\n"
@@ -421,6 +424,31 @@ on CPU. The setting is rich enough to demonstrate every piece of the argument
 the paper develops, and small enough that the inversion can be carried out live
 in a browser tab.
         """.strip()
+    )
+    return
+
+
+# ── At-a-glance numbers ───────────────────────────────────────────────────────
+
+@app.cell(hide_code=True)
+def _at_a_glance(mo):
+    """A compact stat row that anchors the headline numbers up front."""
+    mo.hstack(
+        [
+            mo.stat(value="124 M", label="GPT-2 small parameters",
+                    caption="the smallest model showing the geometry",
+                    bordered=True),
+            mo.stat(value="50,257", label="Tokens searched per position",
+                    caption="full vocabulary, no shortcuts",
+                    bordered=True),
+            mo.stat(value="≈ 10⁻¹⁰", label="Min MSE at recovered token",
+                    caption="versus distractors of order 10⁰–10²",
+                    bordered=True),
+            mo.stat(value="½ margin", label="Theorem 3.2 budget",
+                    caption="recovery survives below this perturbation",
+                    bordered=True),
+        ],
+        justify="space-between", wrap=True,
     )
     return
 
@@ -588,13 +616,18 @@ def _s2_prebaked_plot(DIST_COLOR, TRUE_COLOR, T, mo, np, plt):
             plotted = np.where(vals <= 0, 1e-15, vals)
             ax.bar(range(len(vals)), plotted, color=colors, alpha=0.85, width=0.8)
             ax.set_yscale("log")
+            # Compact two-line title: token on top in the true-token color, then
+            # the achieved loss/rank as a quiet caption underneath.
             ax.set_title(
-                f"Pos {res['tok_idx']} → `{res['true_token']}`\n"
-                f"True: {res['true_loss']:.1e}   Rank: {res['rank']}",
-                fontsize=9,
+                f"pos {res['tok_idx']} · {res['true_token']!r}",
+                fontsize=10, color=TRUE_COLOR, fontweight="bold", pad=2,
             )
-            ax.set_xlabel("Top-30 by loss")
-            ax.set_ylabel("MSE loss (log)")
+            ax.set_xlabel(
+                f"true {res['true_loss']:.0e} · rank {res['rank']}",
+                fontsize=8.5, color="#6b7280", labelpad=2,
+            )
+            if ax is axes[0]:
+                ax.set_ylabel("MSE loss (log)")
             ax.set_xticks([])
         return fig
 
@@ -776,12 +809,15 @@ def _s2_live_plot(DIST_COLOR, TRUE_COLOR, landscape_prompt, landscape_results, m
             _ax.bar(range(len(_vals)), _plotted, color=_colors, alpha=0.85, width=0.8)
             _ax.set_yscale("log")
             _ax.set_title(
-                f"Pos {_res['tok_idx']} → `{_res['true_token']}`\n"
-                f"True: {_res['true_loss']:.1e}   Rank: {_res['rank']}",
-                fontsize=9,
+                f"pos {_res['tok_idx']} · {_res['true_token']!r}",
+                fontsize=10, color=TRUE_COLOR, fontweight="bold", pad=2,
             )
-            _ax.set_xlabel("Top-30 by loss")
-            _ax.set_ylabel("MSE loss (log)")
+            _ax.set_xlabel(
+                f"true {_res['true_loss']:.0e} · rank {_res['rank']}",
+                fontsize=8.5, color="#6b7280", labelpad=2,
+            )
+            if _ax is _axes[0]:
+                _ax.set_ylabel("MSE loss (log)")
             _ax.set_xticks([])
 
         _ratios = [r["median_rand"] / max(r["true_loss"], 1e-15) for r in landscape_results]
@@ -850,7 +886,23 @@ $$
 
 Because the loss landscape has a single sharp well at the right token, the
 procedure recovers the original prompt exactly, in time linear in the prompt
-length and the vocabulary size.
+length and the vocabulary size. Written out as pseudocode, the algorithm is
+straightforward enough to fit in a single block:
+
+```
+Algorithm: SipIt (Section 3 of the paper)
+Input:  observed hidden states h_obs[0..L-1], target layer t
+Output: recovered prompt π̂
+
+π̂ ← []
+for i = 0, 1, ..., L-1:
+    v* ← arg min over v in V of  ||h_t(π̂ ⊕ v) - h_obs[i]||²
+    π̂.append(v*)
+return π̂
+```
+
+The notebook below runs exactly this loop, with no shortcuts: every one of
+the 50,257 GPT-2 tokens is evaluated at every position.
 
 The result for *"Hello world how"* is shown below. The recovery was carried
 out at layer 12 over the full vocabulary, so each value is a true minimum over
