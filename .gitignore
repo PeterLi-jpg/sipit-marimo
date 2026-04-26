@@ -3,3 +3,7 @@ __marimo__/
 *.pyc
 *.pyo
 .DS_Store
+
+*.json
+extract_more.py
+prompt_recovery_cpu_outline.py

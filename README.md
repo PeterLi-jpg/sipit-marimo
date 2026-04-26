@@ -16,9 +16,12 @@ Locally:
 
 ```bash
 uv venv
-uv pip install marimo torch transformers scikit-learn numpy matplotlib
+uv pip install marimo numpy matplotlib
 uvx marimo run sipit_demo.py
 ```
+
+The notebook ships with all GPT-2 outputs pre-computed and embedded as data,
+so it has **no torch / transformers dependency** and loads instantly in WASM.
 
 ## Files
 
