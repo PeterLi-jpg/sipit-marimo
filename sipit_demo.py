@@ -859,12 +859,18 @@ $$
 $$
 
 This guarantees $\|\delta_{{\mathrm{{pos}}}}\| = 0.9 \cdot \tfrac{{1}}{{2}}\,\mathrm{{margin}}$,
-strictly inside the Theorem 3.2 budget at every position. With {_n_pos}
-positions × {_bits_per_pos} bits each, the channel carries
-{_n_pos * _bits_per_pos} bits = {_n_pos} ASCII char{'s' if _n_pos != 1 else ''}
-of payload per cover prompt. The receiver projects the residual onto the
-same basis and reads off the bits from the signs. Type a payload below —
-every encoding/decoding step happens in pure numpy, no model call required.
+strictly inside the Theorem 3.2 budget at every position. The construction
+has a clean property worth pointing out: **the L2 norm of $\delta$ does
+not depend on the payload**. The basis is orthonormal, so flipping any bit
+changes only the *direction* of $\delta$, not its magnitude. The channel
+spends the same energy whether the payload is `Hi`, `xy`, or two random
+bytes — the {_n_pos * _bits_per_pos} bits ride entirely in the **signs**
+of the projections. With {_n_pos} positions × {_bits_per_pos} bits each,
+the channel carries {_n_pos * _bits_per_pos} bits =
+{_n_pos} ASCII char{'s' if _n_pos != 1 else ''} of payload per cover prompt.
+The receiver projects the residual onto the same basis and reads off the
+signs. Type a payload below — every encoding/decoding step happens in
+pure numpy, no model call required.
         """.strip()
     )
     return
@@ -994,16 +1000,33 @@ def _s6_show(DIST_COLOR, T, TRUE_COLOR, mo, np, payload_input, plt):
             f"carrier holds {_n_pos} ASCII bytes)"
             if len(_payload) > _max_chars else ""
         )
+        # Per-position budget check, framed as percent of margin used
+        _budget_used_pct = 100.0 * _delta_norms / (_margins / 2)
+        _total_budget    = float(np.linalg.norm(_margins / 2))
+        _total_used      = float(np.linalg.norm(_deltas))
+
         if _bound_ok and _payload_ok:
             _verdict = (
-                f"**Round-trip succeeded.** Payload `{_trunc!r}` was encoded "
-                f"as a perturbation of total norm "
-                f"{float(np.linalg.norm(_deltas)):.3f} and recovered exactly "
+                f"**Round-trip succeeded.** Payload `{_trunc!r}` was decoded "
                 f"as `{_decoded_str.rstrip(chr(0))!r}`. The cover prompt "
                 f"*\"{T.STEGO_PROMPT}\"* remains recoverable by SipIt because "
                 f"every per-position $\\|\\delta\\|$ stayed strictly below "
                 f"the half-margin bound. The receiver gets both the cover "
-                f"prompt and the hidden message."
+                f"prompt and the hidden message.\n\n"
+                f"Per-position budget used: "
+                + " · ".join(
+                    f"`pos {i}` = {_budget_used_pct[i]:.1f}% of margin"
+                    for i in range(_n_pos)
+                )
+                + f" (total $\\|\\delta\\|$ = {_total_used:.3f}, "
+                f"total budget = {_total_budget:.3f}).\n\n"
+                f"_Note that the total norm $\\|\\delta\\|$ does **not** "
+                f"depend on the payload content — flipping any bit changes "
+                f"only the **direction** of $\\delta$, not its magnitude, "
+                f"because the basis is orthonormal. The {_n_pos * _bits_per_pos} "
+                f"bits of payload are encoded entirely in the **signs** of "
+                f"the projections onto the basis vectors. The channel always "
+                f"uses the same energy._"
             )
         else:
             _verdict = (
