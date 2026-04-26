@@ -846,26 +846,37 @@ $$
 
 @app.cell(hide_code=True)
 def _s5_picker(T, mo):
+    # Index sliders — universal slider API, no `steps=` needed
+    _noise_opts = T.PERTURB_NOISE_LEVELS          # [0.0, 0.5, 1.0, 2.0, 5.0]
+    _quant_opts = sorted(T.PERTURB_QUANT_LEVELS)  # [0, 4, 8]
     noise_picker = mo.ui.slider(
-        steps=T.PERTURB_NOISE_LEVELS,
-        value=0.0,
+        start=0, stop=len(_noise_opts) - 1, step=1, value=0,
         label="Noise radius ‖δ‖",
-        show_value=True,
+        show_value=False,
     )
     quant_picker = mo.ui.slider(
-        steps=sorted(T.PERTURB_QUANT_LEVELS),
-        value=0,
-        label="Quantization bits  (0 = off)",
-        show_value=True,
+        start=0, stop=len(_quant_opts) - 1, step=1, value=0,
+        label="Quantization bits (0 = off)",
+        show_value=False,
     )
-    mo.hstack([noise_picker, quant_picker], widths="equal")
+    _nv = _noise_opts[noise_picker.value]
+    _qv = _quant_opts[quant_picker.value]
+    mo.vstack([
+        mo.hstack([noise_picker, quant_picker], widths="equal"),
+        mo.md(
+            f"<div style='display:flex;gap:40px;padding:4px 2px;color:#475569'>"
+            f"<span>Noise radius = <strong>‖δ‖ {_nv}</strong></span>"
+            f"<span>Quantization = <strong>{'off' if _qv == 0 else str(_qv) + '-bit'}</strong></span>"
+            f"</div>"
+        ),
+    ], gap=0)
     return noise_picker, quant_picker
 
 
 @app.cell(hide_code=True)
 def _s5_show(TRUE_COLOR, WRONG_COLOR, T, mo, noise_picker, plt, quant_picker):
-    _nr = float(noise_picker.value)
-    _qb = int(quant_picker.value)
+    _nr = float(T.PERTURB_NOISE_LEVELS[noise_picker.value])
+    _qb = int(sorted(T.PERTURB_QUANT_LEVELS)[quant_picker.value])
     _key = f"{_nr}|{_qb}"
     if _key not in T.PERTURB_RESULTS:
         # Some keys may serialize as "0|0" vs "0.0|0" depending on Python json
@@ -1054,31 +1065,45 @@ def _s6_show(DIST_COLOR, T, TRUE_COLOR, mo, np, payload_input, plt):
         _ax.grid(True, alpha=0.2, axis="y")
         return _fig
 
-    # ── Figure 2: clean vs perturbed hidden state at position 0 ──────────────
+    # ── Figure 2: carrier for each token position (one column per position) ─────
     def _draw_carrier():
         _n_show = 96
         _fig, _axes = plt.subplots(
-            2, 1, figsize=(11, 3.6), sharex=True, constrained_layout=True,
+            2, _n_pos,
+            figsize=(5.5 * _n_pos, 3.6),
+            sharex=True, constrained_layout=True,
         )
-        _axes[0].plot(_clean[0, :_n_show], color=TRUE_COLOR, linewidth=1.1,
-                      label="clean h(\"Hello\")")
-        _axes[0].plot(_perturbed[0, :_n_show], color=DIST_COLOR, linewidth=1.1,
-                      alpha=0.85, label="perturbed (clean + payload δ)")
-        _axes[0].set_ylabel("hidden value")
-        _axes[0].legend(loc="upper right", fontsize=9, framealpha=0.95)
-        _axes[0].set_title(
-            f"Position 0 carrier — first {_n_show} of 768 dimensions",
-            fontsize=10.5,
-        )
-        _axes[0].grid(True, alpha=0.2)
-
-        _axes[1].plot(_deltas[0, :_n_show], color="#8b5cf6", linewidth=1.1,
-                      label="payload δ (encoded message)")
-        _axes[1].axhline(0, color="#888", linewidth=0.5)
-        _axes[1].set_ylabel("δ value")
-        _axes[1].set_xlabel("dimension")
-        _axes[1].legend(loc="upper right", fontsize=9, framealpha=0.95)
-        _axes[1].grid(True, alpha=0.2)
+        # Normalise axes to always be 2-D array
+        if _n_pos == 1:
+            import numpy as _np2
+            _axes = _np2.array([[_axes[0]], [_axes[1]]])
+        for _pi in range(_n_pos):
+            _tok = T.STEGO_TOKENS[_pi].strip() or "∅"
+            _b = _bytes[_pi]
+            _char = chr(_b) if 32 <= _b < 127 else f"\\x{_b:02x}"
+            _bits_str = f"{_b:08b}"
+            # Top: clean vs perturbed
+            _axes[0, _pi].plot(_clean[_pi, :_n_show], color=TRUE_COLOR, lw=1.1,
+                               label=f"clean h({_tok!r})")
+            _axes[0, _pi].plot(_perturbed[_pi, :_n_show], color=DIST_COLOR,
+                               lw=1.1, alpha=0.85, label="clean + δ")
+            _axes[0, _pi].set_title(
+                f"pos {_pi}  {_tok!r}  →  {_char!r}  ({_bits_str})",
+                fontsize=9.5, fontweight="600",
+            )
+            _axes[0, _pi].legend(fontsize=8, loc="upper right", framealpha=0.9)
+            _axes[0, _pi].grid(True, alpha=0.2)
+            if _pi == 0:
+                _axes[0, _pi].set_ylabel("hidden value")
+            # Bottom: payload δ
+            _axes[1, _pi].plot(_deltas[_pi, :_n_show], color="#8b5cf6", lw=1.1,
+                               label=f"δ — bits: {_bits_str}")
+            _axes[1, _pi].axhline(0, color="#888", lw=0.5)
+            _axes[1, _pi].set_xlabel(f"dimension (first {_n_show} of {T.HIDDEN_DIM})")
+            _axes[1, _pi].legend(fontsize=8, loc="upper right", framealpha=0.9)
+            _axes[1, _pi].grid(True, alpha=0.2)
+            if _pi == 0:
+                _axes[1, _pi].set_ylabel("δ value")
         return _fig
 
     if not _trunc:
