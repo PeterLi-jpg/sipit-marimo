@@ -30,17 +30,39 @@ def _():
     from transformers import GPT2Model, GPT2Tokenizer
     from transformers.cache_utils import DynamicCache
 
+    # Shared color palette — used across all charts for visual consistency.
+    PALETTE = {
+        "blue":   "#3b82f6",   # distractors, secondary
+        "green":  "#10b981",   # true token, success
+        "red":    "#ef4444",   # wrong token, failure
+        "purple": "#8b5cf6",   # accent / §2
+        "teal":   "#0891b2",   # accent / §3
+        "orange": "#f59e0b",   # accent / warn
+        "gray":   "#6b7280",   # neutral text
+        "dark":   "#1e293b",   # headings
+    }
+    # Eight distinct point colors for the PCA scatter (avoids default tab10 muddle).
+    PCA_COLORS = [
+        "#3b82f6", "#10b981", "#f59e0b", "#8b5cf6",
+        "#0891b2", "#ef4444", "#a16207", "#6366f1",
+    ]
+
     plt.rcParams.update({
-        "axes.spines.top": False,
-        "axes.spines.right": False,
-        "axes.grid": True,
-        "grid.color": "#e8e8e8",
-        "grid.linewidth": 0.8,
-        "figure.facecolor": "white",
-        "axes.facecolor": "#fafafa",
+        "axes.spines.top":    False,
+        "axes.spines.right":  False,
+        "axes.grid":          True,
+        "grid.color":         "#e5e7eb",
+        "grid.linewidth":     0.7,
+        "figure.facecolor":   "white",
+        "axes.facecolor":     "#f9fafb",
+        "font.size":          10,
+        "axes.labelsize":     10,
+        "axes.titlesize":     11,
+        "xtick.labelsize":    9,
+        "ytick.labelsize":    9,
     })
 
-    return DynamicCache, GPT2Model, GPT2Tokenizer, PCA, mo, nn, np, plt, torch
+    return DynamicCache, GPT2Model, GPT2Tokenizer, PALETTE, PCA, PCA_COLORS, mo, nn, np, plt, torch
 
 
 @app.cell(hide_code=True)
@@ -139,21 +161,46 @@ def _(mo):
               </div>
             </div>
             """),
-            mo.md(
-                r"""
-                The paper proves that decoder-only language models are **almost surely injective**:
-                distinct input sequences map to distinct hidden states. The consequence for security
-                is direct — anyone with access to a model's internal hidden representations can
+            mo.Html("""
+            <div style="padding:0.25rem 0.5rem;">
+              <p style="margin:0 0 0.75rem; font-size:0.97rem; line-height:1.7; color:#374151;">
+                The paper proves that decoder-only language models are
+                <strong>almost surely injective</strong>: distinct input sequences map to distinct
+                hidden states. Anyone with access to a model's internal representations can
                 reconstruct the original prompt token by token.
-
-                This notebook makes that claim concrete on a real model:
-
-                - **§ 1** — GPT-2 hidden states visualised in 2D. Type any sentence to add it live.
-                - **§ 2** — One-step loss landscapes show the true token as the unique near-zero minimiser.
-                - **§ 3** — Full-vocabulary brute-force inversion: all 50,257 GPT-2 tokens searched, exact recovery verified.
-                - **§ 5** — Extension (Theorem 3.2): recovery under noise and quantization on real GPT-2 hidden states.
-                """
-            ),
+              </p>
+              <p style="margin:0 0 0.5rem; font-size:0.85rem; font-weight:600;
+                         text-transform:uppercase; letter-spacing:0.08em; color:#6b7280;">
+                This notebook makes the claim concrete on real GPT-2:
+              </p>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.6rem;">
+                <div style="background:#eff6ff; border-radius:8px; padding:0.65rem 0.9rem;">
+                  <span style="font-weight:700; color:#3b82f6;">§ 1</span>
+                  <span style="font-size:0.88rem; color:#374151; margin-left:0.4rem;">
+                    Hidden states in 2D — type any sentence to add it live.
+                  </span>
+                </div>
+                <div style="background:#f5f3ff; border-radius:8px; padding:0.65rem 0.9rem;">
+                  <span style="font-weight:700; color:#8b5cf6;">§ 2</span>
+                  <span style="font-size:0.88rem; color:#374151; margin-left:0.4rem;">
+                    Loss landscapes — true token is the unique near-zero minimizer.
+                  </span>
+                </div>
+                <div style="background:#ecfeff; border-radius:8px; padding:0.65rem 0.9rem;">
+                  <span style="font-weight:700; color:#0891b2;">§ 3</span>
+                  <span style="font-size:0.88rem; color:#374151; margin-left:0.4rem;">
+                    Full-vocab inversion — all 50,257 tokens searched, exact match.
+                  </span>
+                </div>
+                <div style="background:#ecfdf5; border-radius:8px; padding:0.65rem 0.9rem;">
+                  <span style="font-weight:700; color:#10b981;">§ 5</span>
+                  <span style="font-size:0.88rem; color:#374151; margin-left:0.4rem;">
+                    Robustness — noise &amp; quantization vs. Theorem 3.2.
+                  </span>
+                </div>
+              </div>
+            </div>
+            """),
         ],
         gap=1.0,
     )
@@ -162,19 +209,23 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""
-        ---
-        ## § 1  Injectivity in Practice: A Visual Sanity Check
-
-        The paper's formal guarantees are Theorem **2.2** (almost-sure injectivity at initialization)
-        and Theorem **2.3** (injectivity preserved under finite gradient training).
-
-        The plot below is **not a proof** of injectivity. It is just an illustration that nearby or
-        semantically similar prompts still land at distinct GPT-2 hidden representations. The paper's
-        stronger evidence comes from billions of collision checks across large prompt sets.
-        """
-    )
+    mo.Html("""
+    <div style="border-left:4px solid #3b82f6; padding:0.75rem 1.25rem;
+                background:#eff6ff; border-radius:0 10px 10px 0; margin:1.5rem 0 0.25rem;">
+      <span style="font-size:0.7rem; letter-spacing:0.1em; text-transform:uppercase;
+                   color:#3b82f6; font-weight:700;">§ 1</span>
+      <h2 style="margin:0.15rem 0 0.4rem; color:#1e3a5f; font-size:1.3rem; font-weight:700;">
+        Injectivity in Practice: A Visual Sanity Check
+      </h2>
+      <p style="margin:0; color:#374151; font-size:0.9rem; line-height:1.6;">
+        Theorem <strong>2.2</strong> (almost-sure injectivity at initialization) and Theorem
+        <strong>2.3</strong> (injectivity preserved under finite gradient training) guarantee
+        that distinct input sequences map to distinct hidden states.
+        The PCA projection below illustrates this on real GPT-2 geometry —
+        not a formal proof, but a concrete sanity check. Type any sentence to add it live.
+      </p>
+    </div>
+    """)
     return
 
 
@@ -228,6 +279,7 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(
+    PCA_COLORS,
     base_sentences,
     device,
     min_pairwise_dist,
@@ -244,7 +296,7 @@ def _(
     custom = (sentence_input.value or "").strip()
 
     fig, ax = plt.subplots(figsize=(9, 4.5), constrained_layout=True)
-    _colors = plt.cm.tab10(np.linspace(0, 1, len(base_sentences)))
+    _colors = PCA_COLORS[: len(base_sentences)]
 
     for idx, (point, sentence) in enumerate(zip(xy_base, base_sentences)):
         ax.scatter(*point, s=160, color=_colors[idx], zorder=5)
@@ -306,21 +358,23 @@ def _(
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""
-        ---
-        ## § 2  Why Inversion Works: One-Step Loss Landscapes
-
-        At each position, once the prefix is known, the paper studies the one-step map
-        $v \mapsto h_t(\pi \oplus v)$. If that map is injective, only one candidate token matches the
-        observed hidden state.
-
-        The visualization below samples a set of distractor tokens and compares their hidden states
-        against the target. In exact arithmetic, the true token is the unique minimizer; in practice
-        you should expect a **near-zero** loss for the true token and clearly larger losses for
-        sampled impostors.
-        """
-    )
+    mo.Html("""
+    <div style="border-left:4px solid #8b5cf6; padding:0.75rem 1.25rem;
+                background:#f5f3ff; border-radius:0 10px 10px 0; margin:1.5rem 0 0.25rem;">
+      <span style="font-size:0.7rem; letter-spacing:0.1em; text-transform:uppercase;
+                   color:#8b5cf6; font-weight:700;">§ 2</span>
+      <h2 style="margin:0.15rem 0 0.4rem; color:#3b0764; font-size:1.3rem; font-weight:700;">
+        Why Inversion Works: One-Step Loss Landscapes
+      </h2>
+      <p style="margin:0; color:#374151; font-size:0.9rem; line-height:1.6;">
+        At each position, once the prefix is known, the paper studies the map
+        <em>v</em> ↦ <em>h<sub>t</sub></em>(π ⊕ v). If injective, only one candidate matches
+        the observed hidden state. Below, distractor tokens are sampled and their hidden states
+        compared against the target. The true token should be the unique near-zero minimizer —
+        sampled impostors land clearly higher.
+      </p>
+    </div>
+    """)
     return
 
 
@@ -481,7 +535,7 @@ def _(
 
 
 @app.cell(hide_code=True)
-def _(landscape_prompt, landscape_results, mo, np, plt):
+def _(PALETTE, landscape_prompt, landscape_results, mo, np, plt):
     if landscape_results is None:
         _display = mo.md(
             "Enter a prompt above and click **▶ Inspect Loss Landscape**."
@@ -506,7 +560,7 @@ def _(landscape_prompt, landscape_results, mo, np, plt):
             _all_losses = np.concatenate([[_result["true_loss"]], _result["rand_losses"]])
             _sorted_idx = np.argsort(_all_losses)
             _top30 = _sorted_idx[:30]
-            _colors = ["#2ecc71" if _i == 0 else "#3498db" for _i in _top30]
+            _colors = [PALETTE["green"] if _i == 0 else PALETTE["blue"] for _i in _top30]
             _values = _all_losses[_top30]
             _plotted_values = np.where(_values <= 0, 1e-15, _values)
 
@@ -536,7 +590,7 @@ def _(landscape_prompt, landscape_results, mo, np, plt):
             for _r in _results
         ]
         _token_labels = [repr(_r["true_token"]).strip("'") for _r in _results]
-        _bars = _axis2.bar(_token_labels, _ratios, color="#2ecc71", alpha=0.85, zorder=3)
+        _bars = _axis2.bar(_token_labels, _ratios, color=PALETTE["green"], alpha=0.85, zorder=3)
         _axis2.set_yscale("log")
         _axis2.set_xlabel("Token")
         _axis2.set_ylabel("Margin ratio (log scale)")
@@ -604,22 +658,24 @@ def _(landscape_prompt, landscape_results, mo, np, plt):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""
-        ---
-        ## § 3  Exact Prompt Recovery on GPT-2
-
-        The paper's theory allows different candidate policies. This notebook implements the most
-        transparent version: **full-vocabulary exhaustive search** at a fixed layer, one token at a
-        time, using cached prefixes to keep the CPU runtime reasonable.
-
-        Notes:
-
-        - This is the hidden-state leakage setting from the paper.
-        - The live run below is exact but slow, so keep prompts short.
-        - The notebook uses CPU by default; start with 2 to 4 tokens.
-        """
-    )
+    mo.Html("""
+    <div style="border-left:4px solid #0891b2; padding:0.75rem 1.25rem;
+                background:#ecfeff; border-radius:0 10px 10px 0; margin:1.5rem 0 0.25rem;">
+      <span style="font-size:0.7rem; letter-spacing:0.1em; text-transform:uppercase;
+                   color:#0891b2; font-weight:700;">§ 3</span>
+      <h2 style="margin:0.15rem 0 0.4rem; color:#0c4a6e; font-size:1.3rem; font-weight:700;">
+        Exact Prompt Recovery on GPT-2
+      </h2>
+      <p style="margin:0; color:#374151; font-size:0.9rem; line-height:1.6;">
+        The most transparent inversion policy: <strong>full-vocabulary exhaustive search</strong>
+        at a fixed layer, one token at a time, using cached prefixes to keep CPU runtime
+        manageable. This is the hidden-state leakage setting from the paper.
+        The pre-computed result below loads instantly —
+        click <strong>▶ Recover Prompt Exactly</strong> to run it live on your own short prompt
+        (2–4 tokens recommended on CPU).
+      </p>
+    </div>
+    """)
     return
 
 
@@ -878,46 +934,51 @@ def _(mo, recovery_config, recovery_prompt, recovery_results):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""
-        ---
-        ## § 4  What the Notebook Proves, and What It Does Not
-
-        - The paper's proofs are about **almost-sure injectivity** of decoder-only transformers under
-          continuous initialization and finite gradient-based training.
-        - The practical attack assumes access to the **hidden-state sequence** at a fixed layer.
-        - The brute-force GPT-2 section in this notebook is an exact verifier for that setting.
-        - The PCA and sampled loss-landscape sections are illustrations, not proofs.
-        - The paper's Theorem **3.2** is a **bounded-noise** statement: if the perturbation at each
-          position stays below half the local separation margin, SIPIT still recovers the true tokens.
-
-        Full GPT-2 noise sweeps are slow on CPU, so the extension below turns that half-margin idea
-        into a small interactive demo.
-        """
-    ).callout(kind="info")
+    mo.Html("""
+    <div style="border-left:4px solid #f59e0b; padding:0.75rem 1.25rem;
+                background:#fffbeb; border-radius:0 10px 10px 0; margin:1.5rem 0 0.25rem;">
+      <span style="font-size:0.7rem; letter-spacing:0.1em; text-transform:uppercase;
+                   color:#d97706; font-weight:700;">§ 4 — Honest Scope</span>
+      <h2 style="margin:0.15rem 0 0.4rem; color:#78350f; font-size:1.3rem; font-weight:700;">
+        What the Notebook Proves, and What It Does Not
+      </h2>
+      <ul style="margin:0.3rem 0 0; color:#374151; font-size:0.9rem; line-height:1.8; padding-left:1.2rem;">
+        <li>The paper proves <strong>almost-sure injectivity</strong> of decoder-only transformers
+            under continuous initialization and finite gradient training.</li>
+        <li>The attack requires access to the <strong>hidden-state sequence</strong> at a fixed layer
+            — not just output text from an API.</li>
+        <li>§ 3 brute-force inversion is an <strong>exact verifier</strong> for that leakage setting;
+            § 1 PCA and § 2 loss landscapes are illustrations, not proofs.</li>
+        <li>Theorem <strong>3.2</strong> is a bounded-noise result: recovery survives if the
+            perturbation at each position stays below half the local separation margin.
+            § 5 tests this directly on GPT-2.</li>
+      </ul>
+    </div>
+    """)
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""
-        ---
-        ## § 5  Extension: Noise and Quantization Robustness on GPT-2
-
-        Theorem 3.2 says recovery survives a perturbation if, at each position,
-        the perturbation norm stays below half the local separation margin.
-
-        This section tests that directly on real GPT-2 hidden states: take the same
-        iterative targets used in § 3, corrupt them with additive isotropic noise,
-        uniform bit-width quantization, or both — then re-run the full-vocabulary
-        search on the corrupted targets.
-
-        Start with noise = 0 and quant = off to confirm the clean baseline, then
-        increase noise or lower bit-width to watch recovery break.
-        Keep prompts short (≤ 4 tokens) for reasonable CPU runtime.
-        """
-    )
+    mo.Html("""
+    <div style="border-left:4px solid #10b981; padding:0.75rem 1.25rem;
+                background:#ecfdf5; border-radius:0 10px 10px 0; margin:1.5rem 0 0.25rem;">
+      <span style="font-size:0.7rem; letter-spacing:0.1em; text-transform:uppercase;
+                   color:#10b981; font-weight:700;">§ 5 — Extension</span>
+      <h2 style="margin:0.15rem 0 0.4rem; color:#064e3b; font-size:1.3rem; font-weight:700;">
+        Noise and Quantization Robustness on GPT-2
+      </h2>
+      <p style="margin:0; color:#374151; font-size:0.9rem; line-height:1.6;">
+        Theorem 3.2 guarantees recovery when the perturbation at each position stays below
+        half the local separation margin. This section tests it directly on real GPT-2
+        hidden states: corrupt the layer-12 targets with additive isotropic noise,
+        uniform bit-width quantization, or both — then re-run full-vocabulary search.
+        Start at noise = 0 and quant = off to confirm the clean baseline,
+        then increase noise or lower bit-width to watch recovery break.
+        Keep prompts ≤ 4 tokens for reasonable CPU runtime.
+      </p>
+    </div>
+    """)
     return
 
 
@@ -1141,7 +1202,7 @@ def _(
 
 
 @app.cell(hide_code=True)
-def _(mo, plt, robust_config, robust_prompt, robust_results):
+def _(PALETTE, mo, plt, robust_config, robust_prompt, robust_results):
     if robust_results is None:
         _display = mo.md(
             "Enter a prompt above and click **▶ Run Perturbed Recovery**. "
@@ -1187,7 +1248,7 @@ def _(mo, plt, robust_config, robust_prompt, robust_results):
         )
         _token_labels = [repr(r["true_word"]).strip("'") for r in _results]
         _norms = [r["perturbation_norm"] for r in _results]
-        _bar_colors = ["#2ecc71" if r["correct"] else "#e74c3c" for r in _results]
+        _bar_colors = [PALETTE["green"] if r["correct"] else PALETTE["red"] for r in _results]
         _ax.bar(_token_labels, _norms, color=_bar_colors, alpha=0.85)
         _ax.set_xlabel("Token")
         _ax.set_ylabel("Perturbation ‖δ‖")
@@ -1218,19 +1279,29 @@ def _(mo, plt, robust_config, robust_prompt, robust_results):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""
-        ---
-        ## Takeaways
-
-        - The paper's threat model is **hidden-state leakage**, not black-box prompt recovery from output text.
-        - GPT-2 already shows the one-step separation structure the paper relies on.
-        - Full-vocabulary inversion is exact but slow on CPU, so the notebook keeps that section optional.
-        - § 5 tests Theorem 3.2 directly on GPT-2: noise and quantization applied to the real hidden
-          states either survive recovery or break it, depending on how large the perturbation is
-          relative to the model's local separation margin.
-        """
-    )
+    mo.Html("""
+    <div style="background:linear-gradient(135deg,#0f0c29cc,#302b63cc,#24243ecc);
+                color:white; padding:2rem 2rem 1.75rem; border-radius:14px; margin-top:1.5rem;">
+      <div style="font-size:0.7rem; letter-spacing:0.12em; opacity:0.6;
+                  text-transform:uppercase; margin-bottom:0.5rem;">Key Takeaways</div>
+      <h2 style="margin:0 0 1rem; font-size:1.25rem; font-weight:700;">What We Showed</h2>
+      <ul style="margin:0; padding-left:1.2rem; line-height:2; font-size:0.92rem; opacity:0.9;">
+        <li>The threat model is <strong>hidden-state leakage</strong>, not black-box text recovery
+            from an API.</li>
+        <li>GPT-2 already exhibits the one-step separation structure the injectivity proof relies on.</li>
+        <li>Full-vocabulary brute-force inversion is <strong>exact</strong> on real GPT-2 hidden
+            states — minimum MSE values on the order of 10<sup>−10</sup>.</li>
+        <li>§ 5 stress-tests Theorem 3.2 directly: small perturbations survive, large ones break
+            recovery — exactly as the half-margin bound predicts.</li>
+      </ul>
+      <div style="margin-top:1.25rem; padding-top:1rem; border-top:1px solid rgba(255,255,255,0.15);
+                  font-size:0.8rem; opacity:0.55;">
+        Notebook for the alphaXiv × marimo competition &nbsp;·&nbsp;
+        Paper: Nikolaou et al., ICLR 2026 &nbsp;·&nbsp;
+        <a href="https://arxiv.org/abs/2510.15511" style="color:#93c5fd;">arXiv:2510.15511</a>
+      </div>
+    </div>
+    """)
     return
 
 
