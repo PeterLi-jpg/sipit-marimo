@@ -19,7 +19,7 @@ app = marimo.App(
 )
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
     import marimo as mo
     import matplotlib.pyplot as plt
@@ -43,7 +43,7 @@ def _():
     return DynamicCache, GPT2Model, GPT2Tokenizer, PCA, mo, nn, np, plt, torch
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(DynamicCache, torch):
     def expand_past_key_values(past_key_values, batch_size):
         if past_key_values is None:
@@ -102,7 +102,7 @@ def _(DynamicCache, torch):
     return add_noise_to_tensor, expand_past_key_values, quantize_tensor, sample_without_true
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(GPT2Model, GPT2Tokenizer, mo, nn, torch):
     with mo.status.spinner(title="Loading GPT-2 on CPU (~500 MB on first run)..."):
         tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
@@ -118,7 +118,7 @@ def _(GPT2Model, GPT2Tokenizer, mo, nn, torch):
     return device, model, tokenizer
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.vstack(
         [
@@ -160,7 +160,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
@@ -178,7 +178,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(PCA, device, model, np, tokenizer, torch):
     # Compute base hidden states once at load time; PCA is fit here and reused
     # when the user adds a custom sentence below.
@@ -214,7 +214,7 @@ def _(PCA, device, model, np, tokenizer, torch):
     return base_sentences, min_pairwise_dist, pca, xy_base
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     sentence_input = mo.ui.text(
         value="",
@@ -226,7 +226,7 @@ def _(mo):
     return (sentence_input,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(
     base_sentences,
     device,
@@ -298,7 +298,7 @@ def _(
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
@@ -318,7 +318,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     prompt_input = mo.ui.text(
         value="The cat sat on the mat",
@@ -357,7 +357,7 @@ def _(mo):
     return layer_slider, n_sample_slider, prompt_input, run_btn
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo, prompt_input, tokenizer):
     _ids = tokenizer.encode(prompt_input.value or "")
     _preview = "  ".join(f"`{tokenizer.decode([t])}`" for t in _ids) if _ids else "_empty_"
@@ -365,7 +365,7 @@ def _(mo, prompt_input, tokenizer):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(
     device,
     expand_past_key_values,
@@ -474,7 +474,7 @@ def _(
     return landscape_prompt, landscape_results
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(landscape_prompt, landscape_results, mo, np, plt):
     if landscape_results is None:
         mo.md(
@@ -593,7 +593,7 @@ def _(landscape_prompt, landscape_results, mo, np, plt):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
@@ -614,7 +614,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     recover_input = mo.ui.text(
         value="Hello world how",
@@ -651,7 +651,7 @@ def _(mo):
     return recover_batch_slider, recover_btn, recover_input, recover_layer_slider
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo, recover_input, tokenizer):
     _ids = tokenizer.encode(recover_input.value or "")
     _preview = "  ".join(f"`{tokenizer.decode([t])}`" for t in _ids) if _ids else "_empty_"
@@ -659,7 +659,7 @@ def _(mo, recover_input, tokenizer):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(
     device,
     expand_past_key_values,
@@ -769,7 +769,7 @@ def _(
     return recovery_prompt, recovery_results, recovery_config
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo, recovery_config, recovery_prompt, recovery_results):
     if recovery_results is None:
         prebaked = [
@@ -860,7 +860,7 @@ def _(mo, recovery_config, recovery_prompt, recovery_results):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
@@ -882,7 +882,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
@@ -905,7 +905,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     robust_input = mo.ui.text(
         value="Hello world",
@@ -977,7 +977,7 @@ def _(mo):
     )
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo, robust_input, tokenizer):
     _ids = tokenizer.encode(robust_input.value or "")
     _preview = "  ".join(f"`{tokenizer.decode([t])}`" for t in _ids) if _ids else "_empty_"
@@ -985,7 +985,7 @@ def _(mo, robust_input, tokenizer):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(
     add_noise_to_tensor,
     device,
@@ -1124,7 +1124,7 @@ def _(
     return robust_prompt, robust_results, robust_config
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo, plt, robust_config, robust_prompt, robust_results):
     if robust_results is None:
         _display = mo.md(
@@ -1200,7 +1200,7 @@ def _(mo, plt, robust_config, robust_prompt, robust_results):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(
         r"""
