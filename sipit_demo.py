@@ -75,6 +75,7 @@ def _imports():
     _HIDDEN_DIM = len(_D["PCA_MEAN"])           # 768 for GPT-2 small
     _VOCAB_SIZE = 50_257                         # GPT-2 BPE vocabulary
     _DISTRACTOR_SAMPLES = _D["LANDSCAPES"]["The cat sat on the mat|12"][0]["sample_count"]
+    _STEGO_BITS_PER_POS = 8                      # bits per ASCII character (1 byte)
 
     T = SimpleNamespace(
         TRUE_COLOR=_TRUE_COLOR, DIST_COLOR=_DIST_COLOR,
@@ -83,6 +84,7 @@ def _imports():
         HIDDEN_DIM=_HIDDEN_DIM,
         VOCAB_SIZE=_VOCAB_SIZE,
         DISTRACTOR_SAMPLES=_DISTRACTOR_SAMPLES,
+        STEGO_BITS_PER_POS=_STEGO_BITS_PER_POS,
         **_D,
     )
     return T, mo, np, plt
@@ -972,7 +974,7 @@ def _s5_show(TRUE_COLOR, WRONG_COLOR, T, mo, noise_picker, plt, quant_picker):
 
 @app.cell(hide_code=True)
 def _s6_header(T, mo):
-    _bits_per_pos = 8
+    _bits_per_pos = T.STEGO_BITS_PER_POS
     _n_pos = len(T.STEGO_TOKEN_IDS)
     mo.vstack([
         mo.md(
@@ -1030,7 +1032,7 @@ def _s6_show(DIST_COLOR, T, TRUE_COLOR, mo, np, payload_input, plt):
     _clean   = np.array(T.STEGO_CLEAN_HIDDENS)   # (n_pos, 768)
     _margins = np.array(T.STEGO_HALF_MARGINS)    # (n_pos,)
     _n_pos   = _clean.shape[0]
-    _bits_per_pos = 8
+    _bits_per_pos = T.STEGO_BITS_PER_POS
     _max_chars = _n_pos                          # 1 ASCII byte per position
 
     # Truncate / pad payload to the carrier capacity
