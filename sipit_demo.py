@@ -536,19 +536,21 @@ def _(landscape_prompt, landscape_results, mo, np, plt):
             for _r in _results
         ]
         _token_labels = [repr(_r["true_token"]).strip("'") for _r in _results]
-        _bars = _axis2.bar(_token_labels, _ratios, color="#2ecc71", alpha=0.85)
+        _bars = _axis2.bar(_token_labels, _ratios, color="#2ecc71", alpha=0.85, zorder=3)
         _axis2.set_yscale("log")
         _axis2.set_xlabel("Token")
-        _axis2.set_ylabel("Sampled margin ratio")
+        _axis2.set_ylabel("Margin ratio (log scale)")
         _axis2.set_title(
-            "Sampled margin ratio = median distractor loss / true-token loss",
+            "Sampled margin ratio: median distractor loss ÷ true-token loss\n"
+            "Higher = true token is more isolated from sampled impostors",
             fontsize=9.5,
         )
-        _axis2.grid(True, alpha=0.2, axis="y")
+        _axis2.set_ylim(top=max(_ratios) * 20)
+        _axis2.grid(True, alpha=0.25, axis="y", zorder=0)
         for _bar, _val in zip(_bars, _ratios):
             _axis2.text(
                 _bar.get_x() + _bar.get_width() / 2,
-                _val * 1.3,
+                _val * 2.5,
                 f"{_val:.0e}",
                 ha="center",
                 va="bottom",
