@@ -360,8 +360,8 @@ def _(mo):
 @app.cell
 def _(mo, prompt_input, tokenizer):
     _ids = tokenizer.encode(prompt_input.value or "")
-    preview = "  ".join(f"`{tokenizer.decode([t])}`" for t in _ids) if _ids else "_empty_"
-    mo.md(f"**Tokens ({len(_ids)}):** {preview}")
+    _preview = "  ".join(f"`{tokenizer.decode([t])}`" for t in _ids) if _ids else "_empty_"
+    mo.md(f"**Tokens ({len(_ids)}):** {_preview}")
     return
 
 
@@ -654,8 +654,8 @@ def _(mo):
 @app.cell
 def _(mo, recover_input, tokenizer):
     _ids = tokenizer.encode(recover_input.value or "")
-    preview = "  ".join(f"`{tokenizer.decode([t])}`" for t in _ids) if _ids else "_empty_"
-    mo.md(f"**Tokens ({len(_ids)}):** {preview}")
+    _preview = "  ".join(f"`{tokenizer.decode([t])}`" for t in _ids) if _ids else "_empty_"
+    mo.md(f"**Tokens ({len(_ids)}):** {_preview}")
     return
 
 
@@ -980,8 +980,8 @@ def _(mo):
 @app.cell
 def _(mo, robust_input, tokenizer):
     _ids = tokenizer.encode(robust_input.value or "")
-    preview = "  ".join(f"`{tokenizer.decode([t])}`" for t in _ids) if _ids else "_empty_"
-    mo.md(f"**Tokens ({len(_ids)}):** {preview}")
+    _preview = "  ".join(f"`{tokenizer.decode([t])}`" for t in _ids) if _ids else "_empty_"
+    mo.md(f"**Tokens ({len(_ids)}):** {_preview}")
     return
 
 
