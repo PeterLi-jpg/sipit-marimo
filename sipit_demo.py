@@ -405,8 +405,14 @@ def _intro(T, mo):
         ),
         mo.callout(
             mo.md(
-                "**Roadmap:** § 1 *geometry* → § 2 *landscape* → § 3 *recovery* "
-                f"(exhaustive, all {T.VOCAB_SIZE:,} tokens) → § 5 *robustness* → § 6 *channel* (ours)"
+                f"**GPT-2 is the encoder. SipIt is the decoder.** "
+                f"The round-trip is lossless because the encoding is injective. "
+                f"Each section below stress-tests one piece: "
+                f"§ 1 *does the encoding spread prompts apart?* · "
+                f"§ 2 *is there a clean minimum to find?* · "
+                f"§ 3 *does the decoder return the exact prompt?* · "
+                f"§ 5 *does it survive noise?* · "
+                f"§ 6 *what lives in the unused budget?* (our extension)"
             ),
             kind="info",
         ),
@@ -425,12 +431,10 @@ def _s1_header(T, mo):
             f"## § 1  &nbsp; Geometry &nbsp; <span style='color:#92400e;font-size:0.65em;"
             f"background:#fef3c7;padding:2px 8px;border-radius:8px;vertical-align:middle;'>"
             f"VERIFIER: SUGGESTIVE</span>\n\n"
-            f"Theorems 2.2 and 2.3 prove distinct prompts produce distinct hidden "
-            f"states, but say nothing about how *separated* they are. Two sequences "
-            f"could be formally distinct yet sit on top of each other in practice. "
-            f"Below: layer-12 mean-pooled states for {_n_base} base sentences, "
-            f"projected into 2-D by PCA. Pick from {_n_demo} pre-computed demo "
-            f"sentences to drop one onto the plot."
+            f"**Does the encoding spread prompts apart?** "
+            f"The theory guarantees distinct hidden states, but not a usable gap between them. "
+            f"Here: layer-12 hidden states for {_n_base} sentences projected to 2-D by PCA — "
+            f"do they land at visually distinct points, or pile up?"
         ),
     ], gap=0.4)
     return
@@ -553,9 +557,7 @@ def _s2_header(T, mo):
             rf"""
 ## § 2  &nbsp; Loss Landscape &nbsp; <span style='color:#1e3a8a;font-size:0.65em;background:#dbeafe;padding:2px 8px;border-radius:8px;vertical-align:middle;'>VERIFIER: SAMPLED</span>
 
-The injectivity proof rests on a one-step argument: fix a prefix $\pi$ and ask,
-for every candidate $v$, how close $h_t(\pi \oplus v)$ is to $h_t^{{\mathrm{{obs}}}}$.
-Define the per-candidate loss as
+**Is there a clean minimum for the decoder to find?** Separation is necessary but not sufficient — SipIt works only if the true token produces the *uniquely* lowest loss at each position. Fix a prefix $\pi$ and score every candidate $v$ by
             """.strip()
         ),
         mo.md(r"""
@@ -564,10 +566,11 @@ $$
 $$
         """),
         mo.md(
-            f"The true token sits at zero; every other candidate sits strictly "
-            f"above. Below: {len(T.LANDSCAPES)} pre-computed configurations, "
-            f"each sampling {T.DISTRACTOR_SAMPLES} random distractors per "
-            f"position. Green = true; blue = sampled distractors."
+            f"If the true token is always the unique near-zero minimizer, "
+            f"the decoder has an unambiguous target. "
+            f"Below: {len(T.LANDSCAPES)} (prompt, layer) configurations, "
+            f"{T.DISTRACTOR_SAMPLES} sampled distractors per position. "
+            f"Green star = true token; blue dots = distractors."
         ),
     ], gap=0.4)
     return
@@ -691,10 +694,9 @@ def _s3_header(T, mo):
             rf"""
 ## § 3  &nbsp; Exact Recovery &nbsp; <span style='color:#064e3b;font-size:0.65em;background:#d1fae5;padding:2px 8px;border-radius:8px;vertical-align:middle;'>VERIFIER: EXHAUSTIVE</span>
 
-§ 2 sampled {T.DISTRACTOR_SAMPLES} distractors. The injectivity claim is
-stronger: the true token is the unique near-zero minimizer over **all**
-{T.VOCAB_SIZE:,} candidates. **SipIt** (Algorithm 1) does it greedily, position
-by position, and runs in $O(L \cdot |\mathcal{{V}}|)$:
+**Does the decoder return the exact prompt?** § 2 sampled {T.DISTRACTOR_SAMPLES} distractors.
+Now run the full decoder: exhaustive argmin over every one of the {T.VOCAB_SIZE:,} tokens,
+position by position. **SipIt** (Algorithm 1) does this greedily in $O(L \cdot |\mathcal{{V}}|)$:
             """.strip()
         ),
         mo.md(rf"""
@@ -718,8 +720,7 @@ $$
                 ),
         }),
         mo.md(
-            f"Dropdown picks one of {len(T.RECOVERIES)} pre-computed runs. "
-            f"Every value shown is a true minimum over all {T.VOCAB_SIZE:,} tokens."
+            f"Every value below is a true minimum over all {T.VOCAB_SIZE:,} tokens — no shortcuts."
         ),
     ], gap=0.4)
     return
@@ -853,10 +854,10 @@ def _s5_header(T, mo):
     mo.vstack([
         mo.md(
             rf"""
-## § 5  &nbsp; When Recovery Breaks &nbsp; <span style='color:#1e3a8a;font-size:0.65em;background:#dbeafe;padding:2px 8px;border-radius:8px;vertical-align:middle;'>VERIFIER: EMPIRICAL</span>
+## § 5  &nbsp; Robustness &nbsp; <span style='color:#1e3a8a;font-size:0.65em;background:#dbeafe;padding:2px 8px;border-radius:8px;vertical-align:middle;'>VERIFIER: EMPIRICAL</span>
 
-Real attackers don't see clean hidden states. Theorem 3.2 says recovery
-survives when the per-position perturbation stays below half the local margin:
+**Does the decoder survive noise?** § 3 proved exact recovery from clean hidden states.
+Leaked states come with noise. Theorem 3.2 gives the bound: recovery holds as long as the per-position perturbation stays below half the local separation margin,
             """.strip()
         ),
         mo.md(r"""
@@ -866,9 +867,9 @@ $$
 $$
         """),
         mo.md(
-            f"The constant $\\tfrac{{1}}{{2}}$ is sharp. The dropdowns "
-            f"below pick from a **{_n_noise} × {_n_quant}** pre-computed grid "
-            f"on *\"{T.PERTURB_PROMPT}\"* — noise radius × quantization bits."
+            f"and the $\\tfrac{{1}}{{2}}$ is sharp. "
+            f"Sliders below sweep a **{_n_noise} × {_n_quant}** pre-computed grid "
+            f"on *\"{T.PERTURB_PROMPT}\"* — noise radius vs. quantization bits."
         ),
     ], gap=0.4)
     return
@@ -978,10 +979,11 @@ def _s6_header(T, mo):
             rf"""
 ## § 6  &nbsp; Steganographic Channel &nbsp; <span style='color:#5b21b6;font-size:0.65em;background:#ede9fe;padding:2px 8px;border-radius:8px;vertical-align:middle;'>OUR EXTENSION</span>
 
-Reframe the paper. Encoder = GPT-2; decoder = SipIt; round-trip = exact.
-**Theorem 3.2's slack is unused channel capacity.** Encode a payload as
-$\delta$ with $\|\delta\| < \tfrac{{1}}{{2}}\,\mathrm{{margin}}$, transmit the
-noisy state, decode the prompt with SipIt **and** the payload from the residual.
+**What lives in the unused budget?** § 5 showed the decoder is safe within the half-margin.
+That budget is never fully spent — SipIt only needs the true token to be nearest.
+The remaining slack is a real side channel: encode a payload as $\delta$ with
+$\|\delta\| < \tfrac{{1}}{{2}}\,\mathrm{{margin}}$, transmit the noisy state, and a
+receiver can decode **both** the prompt (via SipIt) **and** the hidden message (from the residual).
             """.strip()
         ),
         mo.callout(
@@ -1244,7 +1246,15 @@ def _takeaways(T, mo, np):
         "\n\n*Notebook by Peter Li · Brandon Yee · Jacob Crainic for the alphaXiv × marimo competition.*"
     )
     mo.vstack([
-        mo.md("## Onwards"),
+        mo.md(
+            "## The round-trip is complete\n\n"
+            "The encoding spreads prompts apart (§ 1). "
+            "The landscape has a unique minimum (§ 2). "
+            "The decoder finds it exactly (§ 3). "
+            "It survives noise within the half-margin (§ 5). "
+            "The leftover budget carries a hidden message (§ 6). "
+            "Here is every claim, its evidence level, and its paper anchor:"
+        ),
         mo.md(_table_md),
         mo.callout(mo.md(_tldr_md), kind="success"),
         mo.md(_open_md),
