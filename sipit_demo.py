@@ -114,6 +114,7 @@ def _title(mo):
         "Theorem-3.2 channel of our own.\n\n"
         "Notebook: **Peter Li · Brandon Yee · Jacob Crainic** &nbsp;·&nbsp; "
         "[arXiv:2510.15511](https://arxiv.org/abs/2510.15511) &nbsp;·&nbsp; "
+        "[GitHub](https://github.com/PeterLi-jpg/sipit-marimo) &nbsp;·&nbsp; "
         "alphaXiv × marimo competition"
     )
     return
