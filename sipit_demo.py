@@ -1177,16 +1177,16 @@ def _takeaways(T, mo, np):
         rf"payload (§ 6)."
     )
     _open_md = (
-        rf"**Open questions.** The notebook uses GPT-2 small only — the argument "
-        rf"should generalize to contemporary models but hasn't been verified there. "
-        rf"Margin scaling across depth is unexplored (we work at layer 12 throughout). "
-        rf"The threat model assumed throughout is hidden-state leakage; recovery "
-        rf"from logits or sampled output is out of scope and likely much harder."
-        rf"\n\n---\n\n"
-        rf"Paper: [arXiv:2510.15511](https://arxiv.org/abs/2510.15511) · "
-        rf"Nikolaou et al., *Language Models Are Injective and Hence Invertible*, "
-        rf"ICLR 2026."
-        rf"\n\n*Notebook by Peter Li · Brandon Yee · Jacob Crainic for the alphaXiv × marimo competition.*"
+        "**Open questions.** The notebook uses GPT-2 small only — the argument "
+        "should generalize to contemporary models but hasn't been verified there. "
+        "Margin scaling across depth is unexplored (we work at layer 12 throughout). "
+        "The threat model assumed throughout is hidden-state leakage; recovery "
+        "from logits or sampled output is out of scope and likely much harder."
+        "\n\n---\n\n"
+        "Paper: [arXiv:2510.15511](https://arxiv.org/abs/2510.15511) · "
+        "Nikolaou et al., *Language Models Are Injective and Hence Invertible*, "
+        "ICLR 2026."
+        "\n\n*Notebook by Peter Li · Brandon Yee · Jacob Crainic for the alphaXiv × marimo competition.*"
     )
     mo.vstack([
         mo.md("## Onwards"),
