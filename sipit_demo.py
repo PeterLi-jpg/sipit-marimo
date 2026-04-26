@@ -30,6 +30,16 @@ def _():
     from transformers import GPT2Model, GPT2Tokenizer
     from transformers.cache_utils import DynamicCache
 
+    plt.rcParams.update({
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+        "axes.grid": True,
+        "grid.color": "#e8e8e8",
+        "grid.linewidth": 0.8,
+        "figure.facecolor": "white",
+        "axes.facecolor": "#fafafa",
+    })
+
     return DynamicCache, GPT2Model, GPT2Tokenizer, PCA, mo, nn, np, plt, torch
 
 
@@ -110,29 +120,42 @@ def _(GPT2Model, GPT2Tokenizer, mo, nn, torch):
 
 @app.cell
 def _(mo):
-    mo.md(
-        r"""
-        # Language Models Are Injective and Hence Invertible
+    mo.vstack(
+        [
+            mo.Html("""
+            <div style="background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+                        color: white; padding: 2.5rem 2rem; border-radius: 16px;">
+              <div style="font-size: 0.78rem; letter-spacing: 0.12em; opacity: 0.6;
+                          text-transform: uppercase; margin-bottom: 0.6rem;">
+                ICLR 2026 &nbsp;·&nbsp; alphaXiv × marimo competition
+              </div>
+              <h1 style="margin: 0 0 0.6rem; font-size: 2rem; font-weight: 700; line-height: 1.25;">
+                Language Models Are Injective<br>and Hence Invertible
+              </h1>
+              <div style="opacity: 0.75; font-size: 0.95rem;">
+                Nikolaou et al. &nbsp;·&nbsp;
+                <a href="https://arxiv.org/abs/2510.15511"
+                   style="color: #93c5fd; text-decoration: none;">arXiv:2510.15511</a>
+              </div>
+            </div>
+            """),
+            mo.md(
+                r"""
+                The paper proves that decoder-only language models are **almost surely injective**:
+                distinct input sequences map to distinct hidden states. The consequence for security
+                is direct — anyone with access to a model's internal hidden representations can
+                reconstruct the original prompt token by token.
 
-        **Paper:** [Language Models are Injective and Hence Invertible](https://arxiv.org/abs/2510.15511)
-        by Nikolaou et al. (ICLR 2026)
+                This notebook makes that claim concrete on a real model:
 
-        This notebook focuses on the paper's core security claim in the **hidden-state leakage**
-        setting: if an adversary obtains the per-position hidden states of a decoder-only language
-        model at a fixed layer, the original prompt can be reconstructed token by token.
-
-        Two things matter for this notebook:
-
-        - The paper's theorems are about **hidden representations**, not recovering prompts from
-          final output text alone.
-        - The proof is mathematical, but the notebook should still be **CPU-friendly** and
-          interactive.
-
-        So this notebook does two jobs:
-
-        - it shows a real GPT-2 hidden-state inversion demo on CPU,
-        - it adds a CPU-cheap extension for **Theorem 3.2 style noise robustness**.
-        """
+                - **§ 1** — GPT-2 hidden states visualised in 2D. Type any sentence to add it live.
+                - **§ 2** — One-step loss landscapes show the true token as the unique near-zero minimiser.
+                - **§ 3** — Full-vocabulary brute-force inversion: all 50,257 GPT-2 tokens searched, exact recovery verified.
+                - **§ 5** — Extension (Theorem 3.2): recovery under noise and quantization on real GPT-2 hidden states.
+                """
+            ),
+        ],
+        gap=1.0,
     )
     return
 
@@ -767,15 +790,6 @@ def _(mo, recovery_config, recovery_prompt, recovery_results):
             {"pos": 1, "true_word": " world", "recovered_word": " world", "min_loss": 7.74e-11, "correct": True},
             {"pos": 2, "true_word": " how", "recovered_word": " how", "min_loss": 1.12e-10, "correct": True},
         ]
-        pre_rows = "\n".join(
-            f"| {r['pos']} | `{r['true_word']}` | `{r['recovered_word']}` "
-            f"| {r['min_loss']:.2e} | {'✓' if r['correct'] else '✗'} |"
-            for r in prebaked
-        )
-        pre_table = (
-            "| Pos | True token | Recovered | Minimum loss | Match |\n"
-            "|---|---|---|---:|:---:|\n" + pre_rows
-        )
         mo.vstack(
             [
                 mo.md(
@@ -783,13 +797,23 @@ def _(mo, recovery_config, recovery_prompt, recovery_results):
                     'Recovered **`"Hello world how"`** exactly from leaked GPT-2 '
                     "hidden states at layer 12."
                 ).callout(kind="success"),
+                mo.hstack(
+                    [
+                        mo.stat(
+                            value=r["true_word"].strip(),
+                            label=f"Position {r['pos']}",
+                            caption=f"min MSE {r['min_loss']:.2e} · exact match",
+                            bordered=True,
+                        )
+                        for r in prebaked
+                    ],
+                    justify="start",
+                ),
                 mo.md(
                     "Run ahead of time to save you the wait. Enter your own prompt "
                     "above and click **▶ Recover Prompt Exactly** to try it live — "
                     "the search covers all 50,257 GPT-2 tokens at each position."
                 ).callout(kind="neutral"),
-                mo.md("### Per-position breakdown"),
-                mo.md(pre_table),
             ]
         )
         return
@@ -824,19 +848,32 @@ def _(mo, recovery_config, recovery_prompt, recovery_results):
     message = (
         f'Recovered **`"{recovered_str}"`** exactly from leaked hidden states.'
         if all_correct
-        else f'Partial recovery for **`"{recovery_prompt}"`**. Inspect the table below.'
+        else f'Partial recovery for **`"{recovery_prompt}"`**. Check the breakdown below.'
     )
 
     mo.vstack(
         [
             mo.md(
                 f"### Recovery of `{recovery_prompt}`\n\n"
-                f"Layer: **{recovery_config['layer']}**, batch size: **{recovery_config['batch_size']}**"
+                f"Layer: **{recovery_config['layer']}** · batch size: **{recovery_config['batch_size']}**\n\n"
+                f"{message}"
             ).callout(kind=kind),
-            mo.md(message),
+            mo.hstack(
+                [
+                    mo.stat(
+                        value=result["recovered_word"].strip() or result["recovered_word"],
+                        label=f"Position {result['pos']}",
+                        caption=f"min MSE {result['min_loss']:.2e} · {'✓' if result['correct'] else '✗ wrong'}",
+                        bordered=True,
+                    )
+                    for result in results
+                ],
+                justify="start",
+                wrap=True,
+            ),
             mo.md(
-                "This section performs a full search over all 50,257 GPT-2 tokens at each step. "
-                "The smallest-loss token is selected as the reconstruction."
+                "Full search over all 50,257 GPT-2 tokens at each position. "
+                "The minimum-MSE token is selected as the reconstruction."
             ).callout(kind="neutral"),
             mo.md("### Per-position breakdown"),
             mo.md(table),
