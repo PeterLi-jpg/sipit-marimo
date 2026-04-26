@@ -272,29 +272,11 @@ def _hero(DIST_COLOR, TRUE_COLOR, T, hero_pos, mo, np, plt):
     _ax4.grid(True, alpha=0.15, axis="y", zorder=0)
 
     mo.vstack([
-        mo.md(
-            f"## The headline result, in four panels\n\n"
-            f"Each panel previews one section of the notebook. "
-            f"**§ 1 Geometry** — the {len(T.BASE_SENTENCES)} base prompts "
-            f"land at distinct points in a 2-D projection of the "
-            f"{T.HIDDEN_DIM}-dimensional layer-12 hidden space. "
-            f"**§ 2 Landscape** — the per-candidate MSE loss at the selected "
-            f"position has a sharp well at the true token, with distractors "
-            f"orders of magnitude above. "
-            f"**§ 3 Recovery** — full vocabulary search over {T.VOCAB_SIZE:,} "
-            f"GPT-2 tokens returns the prompt **exactly** at every position. "
-            f"**§ 5/6 Budget** — Theorem 3.2's half-margin slack is a real "
-            f"channel: § 6 spends 90% of it to carry an ASCII payload as a "
-            f"covert message."
-        ),
+        mo.md("## The argument in four panels"),
         mo.center(_fig),
         mo.md(
-            f"The picture above is the entire notebook in one row. The slider "
-            f"redraws panel 2 only — every other panel is fixed pre-computed "
-            f"data and renders the moment the page loads. The full sections "
-            f"below expand each panel into its own argument and provide "
-            f"interactive controls to flip through other prompts, layers, "
-            f"perturbation levels, and steganographic payloads."
+            "Slider drives panel 2. "
+            "Full sections below expand each argument with interactive controls."
         ),
     ], gap=0.5)
     return
@@ -342,41 +324,89 @@ def _at_a_glance(T, mo, np):
 
 @app.cell(hide_code=True)
 def _intro(T, mo):
+    _pipeline = (
+        f"<div style='background:linear-gradient(135deg,#f8fafc,#f1f5f9);"
+        f"border-radius:14px;padding:24px 28px;margin:8px 0;overflow-x:auto'>"
+        f"<div style='display:flex;align-items:center;gap:10px;min-width:580px'>"
+        # ── prompt ──
+        f"<div style='text-align:center;flex-shrink:0'>"
+        f"<div style='font-size:10px;text-transform:uppercase;letter-spacing:.09em;"
+        f"color:#94a3b8;margin-bottom:6px'>prompt π</div>"
+        f"<div style='background:#0f172a;color:#94a3b8;padding:8px 14px;"
+        f"border-radius:8px;font-family:monospace;font-size:13px'>&quot;The cat sat&quot;</div>"
+        f"</div>"
+        f"<div style='color:#cbd5e1;font-size:22px;flex-shrink:0;padding-top:18px'>→</div>"
+        # ── GPT-2 ──
+        f"<div style='text-align:center;flex-shrink:0'>"
+        f"<div style='font-size:10px;text-transform:uppercase;letter-spacing:.09em;"
+        f"color:#94a3b8;margin-bottom:6px'>GPT-2 · layer 12</div>"
+        f"<div style='border:2px solid #10b981;background:#f0fdf4;border-radius:10px;padding:8px 16px'>"
+        f"<div style='font-weight:700;color:#059669'>forward pass</div>"
+        f"<div style='color:#6b7280;font-size:11px;margin-top:2px'>{T.HIDDEN_DIM}-dim per token</div>"
+        f"</div></div>"
+        f"<div style='color:#cbd5e1;font-size:22px;flex-shrink:0;padding-top:18px'>→</div>"
+        # ── hidden states ──
+        f"<div style='text-align:center;flex-shrink:0'>"
+        f"<div style='font-size:10px;text-transform:uppercase;letter-spacing:.09em;"
+        f"color:#94a3b8;margin-bottom:6px'>hidden states</div>"
+        f"<div style='display:flex;gap:4px;justify-content:center'>"
+        f"<div style='background:#f5f3ff;border:1.5px solid #8b5cf6;border-radius:6px;"
+        f"padding:7px 9px;font-family:monospace;color:#6d28d9'>h₀</div>"
+        f"<div style='background:#f5f3ff;border:1.5px solid #8b5cf6;border-radius:6px;"
+        f"padding:7px 9px;font-family:monospace;color:#6d28d9'>h₁</div>"
+        f"<div style='background:#f5f3ff;border:1.5px solid #8b5cf6;border-radius:6px;"
+        f"padding:7px 9px;font-family:monospace;color:#6d28d9'>h₂</div>"
+        f"</div>"
+        f"<div style='font-size:10px;color:#9ca3af;margin-top:3px'>each ∈ ℝ⁷⁶⁸</div>"
+        f"</div>"
+        f"<div style='color:#cbd5e1;font-size:22px;flex-shrink:0;padding-top:18px'>→</div>"
+        # ── SipIt ──
+        f"<div style='text-align:center;flex-shrink:0'>"
+        f"<div style='font-size:10px;text-transform:uppercase;letter-spacing:.09em;"
+        f"color:#94a3b8;margin-bottom:6px'>SipIt · §3</div>"
+        f"<div style='border:2px solid #3b82f6;background:#eff6ff;border-radius:10px;padding:8px 16px'>"
+        f"<div style='font-weight:700;color:#2563eb'>argmin</div>"
+        f"<div style='color:#6b7280;font-size:11px;margin-top:2px'>{T.VOCAB_SIZE:,} candidates</div>"
+        f"</div></div>"
+        f"<div style='color:#cbd5e1;font-size:22px;flex-shrink:0;padding-top:18px'>→</div>"
+        # ── recovered ──
+        f"<div style='text-align:center;flex-shrink:0'>"
+        f"<div style='font-size:10px;text-transform:uppercase;letter-spacing:.09em;"
+        f"color:#94a3b8;margin-bottom:6px'>recovered π̂</div>"
+        f"<div style='background:#0f172a;color:#94a3b8;padding:8px 14px;"
+        f"border-radius:8px;font-family:monospace;font-size:13px'>"
+        f"&quot;The cat sat&quot; <span style='color:#10b981'>✓</span></div>"
+        f"</div>"
+        f"</div>"
+        # ── theorem badge ──
+        f"<div style='text-align:center;margin-top:14px'>"
+        f"<span style='background:#ecfdf5;border:1px solid #6ee7b7;color:#065f46;"
+        f"font-size:12px;padding:5px 14px;border-radius:20px'>"
+        f"Thm 2.2 &nbsp;·&nbsp; π ≠ π′ ⟹ h_t(π) ≠ h_t(π′) &nbsp;·&nbsp; "
+        f"injectivity makes inversion possible</span></div>"
+        f"</div>"
+    )
     mo.vstack([
         mo.md(
-            rf"""
-## The claim, in one paragraph
-
-Nikolaou et al. ([arXiv:2510.15511](https://arxiv.org/abs/2510.15511), ICLR 2026)
-prove that the map from prompts to hidden states in a decoder-only transformer
-is almost surely **injective**: distinct prompts never collide at the same
-internal representation, and the property is preserved through training. Writing
-$h_t(\pi)$ for the hidden state at layer $t$ on prompt $\pi$, the claim is
-            """.strip()
+            "## The claim\n\n"
+            "Nikolaou et al. ([arXiv:2510.15511](https://arxiv.org/abs/2510.15511), ICLR 2026) "
+            "prove the map from prompts to hidden states in a decoder-only transformer is "
+            "almost surely **injective** — distinct prompts always produce distinct internal "
+            r"representations. For hidden state $h_t(\pi)$ at layer $t$ on prompt $\pi$:"
         ),
-        mo.md(r"""
-$$
-\pi \neq \pi' \quad\Longrightarrow\quad h_t(\pi) \neq h_t(\pi').
-$$
-        """),
+        mo.md(r"$$\pi \neq \pi' \quad\Longrightarrow\quad h_t(\pi) \neq h_t(\pi').$$"),
+        mo.md(_pipeline),
         mo.md(
-            rf"""
-The practical corollary: an injective map is, in principle, *invertible*. The
-paper exhibits **SipIt** (Nikolaou et al.'s Algorithm 1), which does it in linear time per token by
-exhaustive search over the vocabulary. Theorem 3.2 then bounds how much the
-hidden states can be perturbed before recovery breaks. This notebook works the
-whole argument out on GPT-2 small (124 M params, {T.VOCAB_SIZE:,}-token BPE,
-{T.HIDDEN_DIM}-dim hidden state at layer 12), with **§ 6** adding a constructive
-extension we found: the same Theorem-3.2 budget is a usable steganographic
-channel.
-            """.strip()
+            f"**SipIt** (Nikolaou et al.'s Algorithm 1) inverts the map greedily: per position, "
+            f"find the token whose hidden state best matches the observed one — exhaustive over "
+            f"all {T.VOCAB_SIZE:,} candidates, $O(L \\cdot |\\mathcal{{V}}|)$ total. "
+            f"Theorem 3.2 bounds the allowed perturbation. **§ 6** (our extension) shows the "
+            f"Theorem-3.2 slack is a usable steganographic channel."
         ),
         mo.callout(
             mo.md(
-                "**The four arguments below.**  § 1 *geometry* (suggestive only) → "
-                "§ 2 *landscape* (sampled) → § 3 *recovery* (exhaustive over all "
-                f"{T.VOCAB_SIZE:,} tokens) → § 5 *robustness* (Thm 3.2) → "
-                "§ 6 *channel* (our extension)."
+                "**Roadmap:** § 1 *geometry* → § 2 *landscape* → § 3 *recovery* "
+                f"(exhaustive, all {T.VOCAB_SIZE:,} tokens) → § 5 *robustness* → § 6 *channel* (ours)"
             ),
             kind="info",
         ),
