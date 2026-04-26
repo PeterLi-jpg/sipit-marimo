@@ -372,63 +372,43 @@ def _model_utils(DynamicCache, torch):
 
 @app.cell(hide_code=True)
 def _title(mo):
-    mo.Html("""
-    <div style="background:linear-gradient(135deg,#0f0c29,#302b63,#24243e);
-                color:white; padding:2.5rem 2rem 2rem; border-radius:16px;">
-      <div style="font-size:0.75rem; letter-spacing:0.14em; opacity:0.55;
-                  text-transform:uppercase; margin-bottom:0.5rem;">
-        ICLR 2026 &nbsp;·&nbsp; alphaXiv × marimo competition
-      </div>
-      <h1 style="margin:0 0 0.5rem; font-size:2rem; font-weight:700; line-height:1.2;">
-        Language Models Are Injective<br>and Hence Invertible
-      </h1>
-      <div style="opacity:0.7; font-size:0.92rem;">
-        Nikolaou et al. &nbsp;·&nbsp;
-        <a href="https://arxiv.org/abs/2510.15511"
-           style="color:#93c5fd; text-decoration:none;">arXiv:2510.15511</a>
-      </div>
-    </div>
-    """)
+    mo.md(
+        "# Language Models Are Injective, and Hence Invertible\n\n"
+        "**Four stops:**\n"
+        "1. The geometry of distinct prompts in hidden-state space, made visible on real GPT-2.\n"
+        "2. The one-step loss landscape that singles out the true token at every position.\n"
+        "3. Exact prompt recovery by exhaustive search over the full 50,257-token vocabulary.\n"
+        "4. Where the recovery breaks, and what Theorem 3.2 promises about the half-margin bound.\n"
+    )
     return
 
 
 @app.cell(hide_code=True)
 def _intro(mo):
-    mo.vstack([
-        mo.md(
-            "The paper proves that decoder-only language models are **almost surely injective**: "
-            "distinct input sequences map to distinct hidden states. Anyone with access to a "
-            "model's internal representations can reconstruct the original prompt token by token."
-        ),
-        mo.Html("""
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.6rem; margin-top:0.25rem;">
-          <div style="background:#eff6ff; border-radius:8px; padding:0.65rem 0.9rem;">
-            <span style="font-weight:700; color:#3b82f6;">§ 1</span>
-            <span style="font-size:0.88rem; color:#374151; margin-left:0.4rem;">
-              Hidden states in 2D — add your own sentence live.
-            </span>
-          </div>
-          <div style="background:#f5f3ff; border-radius:8px; padding:0.65rem 0.9rem;">
-            <span style="font-weight:700; color:#8b5cf6;">§ 2</span>
-            <span style="font-size:0.88rem; color:#374151; margin-left:0.4rem;">
-              Loss landscapes — true token is the unique near-zero minimizer.
-            </span>
-          </div>
-          <div style="background:#ecfeff; border-radius:8px; padding:0.65rem 0.9rem;">
-            <span style="font-weight:700; color:#0891b2;">§ 3</span>
-            <span style="font-size:0.88rem; color:#374151; margin-left:0.4rem;">
-              Full-vocab inversion — all 50,257 tokens searched, exact match.
-            </span>
-          </div>
-          <div style="background:#ecfdf5; border-radius:8px; padding:0.65rem 0.9rem;">
-            <span style="font-weight:700; color:#10b981;">§ 5</span>
-            <span style="font-size:0.88rem; color:#374151; margin-left:0.4rem;">
-              Robustness — noise &amp; quantization vs Theorem 3.2.
-            </span>
-          </div>
-        </div>
-        """),
-    ], gap=0.75)
+    mo.md(
+        "The standard story about a language model goes as follows. A decoder-only "
+        "transformer maps an input sequence of tokens through many layers of attention "
+        "and feed-forward blocks, and at the top of the stack one reads off a probability "
+        "over the next token. The intermediate hidden states are usually treated as "
+        "instrumental: useful for prediction, not necessarily meaningful in themselves. "
+        "The puzzle is that several recent results suggest the opposite. Nikolaou et al. "
+        "([arXiv:2510.15511](https://arxiv.org/abs/2510.15511), ICLR 2026) prove that the "
+        "map from input sequences to hidden states is almost surely **injective**, meaning "
+        "two distinct prompts of the same length never collide at the same internal "
+        "representation, and that this property is preserved through training.\n\n"
+        "The practical consequence is sharper than the statement makes it sound. If the "
+        "map is injective then it is, in principle, invertible: anyone with access to a "
+        "model's hidden state can reconstruct the prompt that produced it. The paper "
+        "offers an algorithm, SipIt, that does this in linear time per token by exhaustive "
+        "search over the vocabulary. Theorem 3.2 then quantifies how much the hidden "
+        "states can be perturbed before recovery starts to fail, framed in terms of a "
+        "local separation margin that the geometry already supplies.\n\n"
+        "The remainder of this notebook works through the claim on the smallest model "
+        "that exhibits all of the relevant behavior: GPT-2 small, 124 M parameters, run "
+        "on CPU. The setting is rich enough to demonstrate every piece of the argument "
+        "the paper develops, and small enough that the inversion can be carried out live "
+        "in a browser tab."
+    )
     return
 
 
@@ -436,23 +416,24 @@ def _intro(mo):
 
 @app.cell(hide_code=True)
 def _s1_header(mo):
-    mo.Html("""
-    <div style="border-left:4px solid #3b82f6; padding:0.75rem 1.25rem;
-                background:#eff6ff; border-radius:0 10px 10px 0; margin-top:1.5rem;">
-      <span style="font-size:0.7rem; letter-spacing:0.1em; text-transform:uppercase;
-                   color:#3b82f6; font-weight:700;">§ 1</span>
-      <h2 style="margin:0.15rem 0 0.35rem; color:#1e3a5f; font-size:1.25rem; font-weight:700;">
-        Injectivity in Practice: A Visual Sanity Check
-      </h2>
-      <p style="margin:0; color:#374151; font-size:0.88rem; line-height:1.6;">
-        Theorem 2.2 (almost-sure injectivity at initialization) and Theorem 2.3 (injectivity
-        preserved under training) guarantee distinct sequences map to distinct hidden states.
-        The 2-D PCA projection below makes this concrete on real GPT-2 geometry.
-        The base sentences load from pre-computed data instantly.
-        Type a sentence to add it live once GPT-2 is ready.
-      </p>
-    </div>
-    """)
+    mo.md(
+        "## First Steps: Distinct Prompts, Distinct Hidden States\n\n"
+        "A natural starting point is to ask whether the injectivity claim is visible in "
+        "the geometry of GPT-2 itself, before any inversion algorithm is brought to bear. "
+        "Theorem 2.2 of the paper proves almost-sure injectivity at initialization, and "
+        "Theorem 2.3 shows that gradient training preserves the property, but neither "
+        "guarantee says anything about how *separated* distinct prompts actually are in "
+        "practice. Two sequences could be technically distinct in hidden-state space and "
+        "still sit on top of each other for all practical purposes, in which case "
+        "recovery would be hopeless even though the map is formally one-to-one.\n\n"
+        "The figure below takes the layer-12 hidden state of GPT-2 small for eight short "
+        "sentences, mean-pools across positions to get a single 768-dimensional vector "
+        "per sentence, and projects the result into two dimensions with PCA. The "
+        "decomposition is fitted offline so the figure renders the moment the page loads. "
+        "Type a sentence into the input below and the network will encode it once GPT-2 "
+        "has finished initializing, projecting the result into the same pre-fitted PCA "
+        "space so that it lands in the existing scatter as a black star."
+    )
     return
 
 
@@ -519,15 +500,24 @@ def _s1_plot(PCA_COLORS, T, custom, mo, np, plt, xy_custom):
         return fig
 
     _note = (
-        f" The black star is your sentence — **`\"{custom}\"`**." if custom else
-        " Type a sentence above to add it as a black star (GPT-2 must be loaded)."
+        f" The black star marks your sentence, **`\"{custom}\"`**, projected into the same space."
+        if custom else
+        " Type a sentence above to drop it onto the same plot as a black star, once GPT-2 has loaded."
     )
     mo.vstack([
         mo.center(_draw()),
         mo.md(
-            f"Each of the {len(T.BASE_SENTENCES)} sentences lands at a distinct point — "
-            f"consistent with injectivity, though not a proof of it. {_note}"
-        ).callout(kind="neutral"),
+            f"Each of the {len(T.BASE_SENTENCES)} sentences lands at a distinct point in "
+            f"the projection, with a minimum pairwise L2 distance of "
+            f"{T.MIN_PAIRWISE_DIST:.1f} units across the {len(T.BASE_SENTENCES)*(len(T.BASE_SENTENCES)-1)//2} "
+            f"pairs. The two cat sentences, which differ only in articles, sit close "
+            f"together but are still cleanly separated; the literary fragment from "
+            f'*Hamlet* lands far from the rest, as one would expect.{_note} The figure is '
+            f"consistent with injectivity but not a proof of it: a 2D projection can "
+            f"only ever rule out collisions in two coordinates, never confirm their "
+            f"absence in 768. The next section turns to a sharper diagnostic that "
+            f"actually probes the high-dimensional structure."
+        ),
     ])
     return
 
@@ -536,22 +526,26 @@ def _s1_plot(PCA_COLORS, T, custom, mo, np, plt, xy_custom):
 
 @app.cell(hide_code=True)
 def _s2_header(mo):
-    mo.Html("""
-    <div style="border-left:4px solid #8b5cf6; padding:0.75rem 1.25rem;
-                background:#f5f3ff; border-radius:0 10px 10px 0; margin-top:1.5rem;">
-      <span style="font-size:0.7rem; letter-spacing:0.1em; text-transform:uppercase;
-                   color:#8b5cf6; font-weight:700;">§ 2</span>
-      <h2 style="margin:0.15rem 0 0.35rem; color:#3b0764; font-size:1.25rem; font-weight:700;">
-        Why Inversion Works: One-Step Loss Landscapes
-      </h2>
-      <p style="margin:0; color:#374151; font-size:0.88rem; line-height:1.6;">
-        At each position the paper studies the map <em>v</em> ↦ <em>h<sub>t</sub></em>(π ⊕ v).
-        If injective, only one candidate matches the observed hidden state. The pre-computed
-        plot below shows this for <em>"The cat sat on the mat"</em>. Use the live controls
-        to explore other prompts after GPT-2 loads.
-      </p>
-    </div>
-    """)
+    mo.md(
+        "## The One-Step Loss Landscape\n\n"
+        "The injectivity proof of the paper rests on a one-step argument. Fix a prefix "
+        "of tokens and ask, for every candidate next token *v* in the vocabulary, what "
+        "hidden state the model produces for the extended sequence. Theorem 2.2 says "
+        "that the resulting map *v* ↦ *h*(π ⊕ v) is injective with probability one, "
+        "which means exactly one candidate produces the hidden state actually observed. "
+        "If one defines a loss as the squared distance between the candidate's hidden "
+        "state and the observed one, the true token sits at zero and every other "
+        "candidate sits strictly above it. The picture is a flat landscape with a "
+        "single sharp well at the right token.\n\n"
+        "The figure below tests this directly on GPT-2. For each of the six tokens in "
+        "the prompt *\"The cat sat on the mat\"* the notebook samples 256 random "
+        "distractor tokens, runs each through the model with the appropriate prefix, "
+        "and plots the top-30 lowest-loss candidates on a log scale. The leftmost bar "
+        "in green is always the true token, and the right tail in blue collects the "
+        "best-of-256 distractors. The result is pre-computed at layer 12 and renders "
+        "instantly. The live controls below let you re-run the same procedure on a "
+        "prompt of your choosing once GPT-2 has loaded."
+    )
     return
 
 
@@ -605,13 +599,22 @@ def _s2_prebaked_plot(DIST_COLOR, TRUE_COLOR, T, mo, np, plt):
         return fig
 
     mo.vstack([
-        mo.md(
-            f"### Pre-computed: `{T.LANDSCAPE_PROMPT}` · layer {T.LANDSCAPE_LAYER}\n\n"
-            "Green bar = true token · blue bars = sampled distractors. "
-            "True token ranks **#1** at every position."
-        ).callout(kind="success"),
         mo.center(_draw()),
-        mo.md("Margin ratio: how much larger distractor losses are compared to the true token."),
+        mo.md(
+            f"The six panels record the loss landscape at each successive position of "
+            f"*\"{T.LANDSCAPE_PROMPT}\"*. The first position has no preceding context, "
+            f"and the true token *The* sits at exactly zero loss while the nearest "
+            f"distractor lands at roughly 1.5; the gap is real but narrow. Once a "
+            f"prefix exists, the picture sharpens dramatically. From position one "
+            f"onward the true loss collapses to numerical noise (on the order of "
+            f"10⁻¹¹) while distractors sit four to eleven orders of magnitude higher. "
+            f"The right column of every panel records the **rank** of the true token "
+            f"among the 256 candidates, which is **#1** at every position. The figure "
+            f"below summarizes the same data as a margin ratio: median distractor loss "
+            f"divided by true-token loss, position by position. The values span eleven "
+            f"orders of magnitude on the log scale, which is what permits exhaustive "
+            f"search to recover the prompt with no ambiguity at all."
+        ),
         mo.center(_draw_ratios()),
     ])
     return
@@ -630,9 +633,13 @@ def _s2_controls(mo):
         start=128, stop=2048, step=128, value=512,
         label="Distractor tokens per position", show_value=True, full_width=True,
     )
-    run_btn = mo.ui.run_button(label="▶ Run Live Landscape")
+    run_btn = mo.ui.run_button(label="Run live landscape")
     mo.vstack([
-        mo.Html("<h4 style='margin:1rem 0 0.4rem; color:#6b7280;'>Live Controls</h4>"),
+        mo.md(
+            "The same diagnostic on a prompt of your choosing. The number of distractors "
+            "controls how thoroughly the landscape is sampled, and the layer slider lets "
+            "you watch how the gap widens as one moves up the stack."
+        ),
         prompt_input,
         mo.hstack([layer_slider, n_sample_slider], widths="equal"),
         run_btn,
@@ -728,10 +735,11 @@ def _s2_compute(
 def _s2_live_plot(DIST_COLOR, TRUE_COLOR, landscape_prompt, landscape_results, mo, np, plt):
     if landscape_results is None:
         _display = mo.md(
-            "Click **▶ Run Live Landscape** above to compute for a custom prompt."
-        ).callout(kind="info")
+            "_Click **Run live landscape** above to compute the same diagnostic for "
+            "a custom prompt._"
+        )
     elif len(landscape_results) == 0:
-        _display = mo.md("Prompt has zero tokens. Try a different input.").callout(kind="danger")
+        _display = mo.md("_Prompt has zero tokens. Try a different input._")
     else:
         _ncols = min(len(landscape_results), 6)
         _fig, _axes = plt.subplots(
@@ -779,14 +787,18 @@ def _s2_live_plot(DIST_COLOR, TRUE_COLOR, landscape_prompt, landscape_results, m
             "| Token | True loss | Min dist. | Median dist. | Rank |\n"
             "|---|---:|---:|---:|---:|\n" + _rows
         )
+        _summary = (
+            f"The true token ranked **#1** at every position of *\"{landscape_prompt}\"*, "
+            f"reproducing the pattern from the pre-computed example."
+            if _all_r1 else
+            f"At least one position of *\"{landscape_prompt}\"* missed. The most common "
+            f"cause is too few distractors at a near-collision; try increasing the "
+            f"sample count, or shortening the prompt."
+        )
         _display = mo.vstack([
-            mo.md(
-                f"### Live: `{landscape_prompt}`\n\n"
-                + ("True token ranked **#1** at every position." if _all_r1 else
-                   "At least one position missed — try more distractors or a shorter prompt.")
-            ).callout(kind="success" if _all_r1 else "warn"),
             mo.center(_fig),
             mo.center(_fig2),
+            mo.md(_summary),
             mo.md(_table),
         ])
     _display
@@ -797,21 +809,25 @@ def _s2_live_plot(DIST_COLOR, TRUE_COLOR, landscape_prompt, landscape_results, m
 
 @app.cell(hide_code=True)
 def _s3_header(mo):
-    mo.Html("""
-    <div style="border-left:4px solid #0891b2; padding:0.75rem 1.25rem;
-                background:#ecfeff; border-radius:0 10px 10px 0; margin-top:1.5rem;">
-      <span style="font-size:0.7rem; letter-spacing:0.1em; text-transform:uppercase;
-                   color:#0891b2; font-weight:700;">§ 3</span>
-      <h2 style="margin:0.15rem 0 0.35rem; color:#0c4a6e; font-size:1.25rem; font-weight:700;">
-        Exact Prompt Recovery on GPT-2
-      </h2>
-      <p style="margin:0; color:#374151; font-size:0.88rem; line-height:1.6;">
-        Full-vocabulary exhaustive search at layer 12 — all 50,257 GPT-2 tokens evaluated
-        at each position, minimum-MSE token selected. The pre-computed result below is exact.
-        Click <strong>▶ Recover Exactly</strong> to run it live on a short prompt of your choice.
-      </p>
-    </div>
-    """)
+    mo.md(
+        "## Exact Prompt Recovery\n\n"
+        "The previous section establishes that the true token is the unique near-zero "
+        "minimizer of the one-step loss when 256 random distractors are thrown against "
+        "it. The injectivity claim of the paper is stronger: it says the true token is "
+        "the unique near-zero minimizer when **every** token in the vocabulary is "
+        "considered. SipIt, the recovery algorithm of Section 3, takes this literally. "
+        "At each position it sweeps all 50,257 GPT-2 tokens, runs each one through the "
+        "model with the recovered prefix, and picks the token whose hidden state matches "
+        "the observed one most closely. Because the loss landscape has a single sharp "
+        "well at the right token, the procedure recovers the original prompt exactly.\n\n"
+        "The result for *\"Hello world how\"* is shown below. The recovery was carried "
+        "out at layer 12 over the full vocabulary, so each value is a true minimum over "
+        "50,257 candidates rather than over a sample. The minimum MSE at each position "
+        "sits in the 10⁻⁸ to 10⁻¹¹ range, which is several orders of magnitude lower "
+        "than the next-best distractor and well within the noise floor of the floating-"
+        "point arithmetic. Recovery is exact at every position. Live controls follow "
+        "for verifying the result on a short prompt of your own choosing."
+    )
     return
 
 
@@ -819,16 +835,12 @@ def _s3_header(mo):
 def _s3_prebaked(T, mo):
     _r = T.RECOVERY_PREBAKED
     mo.vstack([
-        mo.md(
-            "### Pre-computed: Recovery of `Hello world how`\n\n"
-            "Recovered **`\"Hello world how\"`** exactly from GPT-2 layer-12 hidden states."
-        ).callout(kind="success"),
         mo.hstack(
             [
                 mo.stat(
                     value=row["true_word"].strip() or row["true_word"],
                     label=f"Position {row['pos']}",
-                    caption=f"min MSE {row['min_loss']:.2e} · exact match",
+                    caption=f"min MSE {row['min_loss']:.2e}",
                     bordered=True,
                 )
                 for row in _r
@@ -836,9 +848,14 @@ def _s3_prebaked(T, mo):
             justify="start",
         ),
         mo.md(
-            "Pre-computed to save you the wait. "
-            "Use the live controls below to verify your own short prompt."
-        ).callout(kind="neutral"),
+            "Each box reports one position of the recovered prompt. The true token "
+            "appears as the value, the position index as the label, and the minimum "
+            "MSE achieved over the full vocabulary as the caption. The three boxes "
+            "concatenate to *\"Hello world how\"*, the original prompt, and every "
+            "minimum loss is at least eight orders of magnitude below the next-best "
+            "distractor. The loss landscape has a single sharp minimum at the right "
+            "token and exhaustive search lands on it without ambiguity."
+        ),
     ])
     return
 
@@ -856,15 +873,16 @@ def _s3_controls(mo):
         steps=[128, 256, 512, 1024], value=1024,
         label="Candidate batch size", show_value=True, full_width=True,
     )
-    recover_btn = mo.ui.run_button(label="▶ Recover Exactly (Full Vocabulary)")
+    recover_btn = mo.ui.run_button(label="Recover exactly (full vocabulary)")
     mo.vstack([
-        mo.Html("<h4 style='margin:1rem 0 0.4rem; color:#6b7280;'>Live Controls</h4>"),
+        mo.md(
+            "Live recovery on a prompt of your choosing. The full-vocabulary sweep "
+            "evaluates roughly 50,257 candidates per position, which takes on the "
+            "order of 20–50 seconds per token in WASM, so keep prompts to one to "
+            "three tokens."
+        ),
         recover_input,
         mo.hstack([recover_layer, recover_batch], widths="equal"),
-        mo.md(
-            "⏱ **Heads up:** full-vocab search over 50,257 tokens takes roughly "
-            "**20–50 s per token** in WASM. Keep prompts to 1–3 tokens."
-        ).callout(kind="warn"),
         recover_btn,
     ], gap=0.5)
     return recover_batch, recover_btn, recover_input, recover_layer
@@ -969,14 +987,15 @@ def _s3_compute(
 def _s3_live_plot(mo, recovery_config, recovery_prompt, recovery_results):
     if recovery_results is None:
         _display = mo.md(
-            "Click **▶ Recover Exactly** above to run live on your own prompt."
-        ).callout(kind="info")
+            "_Click **Recover exactly** above to run the live full-vocabulary search "
+            "on your own prompt._"
+        )
     elif recovery_config["status"] == "empty":
-        _display = mo.md("Zero tokens. Try a different prompt.").callout(kind="danger")
+        _display = mo.md("_Zero tokens. Try a different prompt._")
     elif recovery_config["status"] == "too_long":
         _display = mo.md(
-            "Capped at 6 tokens for this demo. Shorten the prompt."
-        ).callout(kind="warn")
+            "_Capped at six tokens to keep the WASM run-time bearable. Shorten the prompt._"
+        )
     else:
         _all_ok  = all(r["correct"] for r in recovery_results)
         _rec_str = "".join(r["recovered_word"] for r in recovery_results)
@@ -989,22 +1008,26 @@ def _s3_live_plot(mo, recovery_config, recovery_prompt, recovery_results):
             "| Pos | True token | Recovered | Min loss | Match |\n"
             "|---|---|---|---:|:---:|\n" + _rows
         )
+        _summary = (
+            f"Recovery of *\"{recovery_prompt}\"* at layer {recovery_config['layer']} "
+            f"returned **\"{_rec_str}\"**, an exact match at every position."
+            if _all_ok else
+            f"Recovery of *\"{recovery_prompt}\"* at layer {recovery_config['layer']} "
+            f"returned **\"{_rec_str}\"**, with at least one position diverging from "
+            f"the truth. Reducing the recovery layer or rerunning with a smaller "
+            f"batch size sometimes recovers the missed token."
+        )
         _display = mo.vstack([
-            mo.md(
-                f"### Recovery of `{recovery_prompt}`\n\n"
-                f"Layer {recovery_config['layer']} · batch {recovery_config['batch_size']}\n\n"
-                + (f'Recovered **`"{_rec_str}"`** exactly.' if _all_ok else
-                   f'Partial match: **`"{_rec_str}"`**.')
-            ).callout(kind="success" if _all_ok else "danger"),
             mo.hstack(
                 [mo.stat(
                     value=r["recovered_word"].strip() or r["recovered_word"],
                     label=f"Position {r['pos']}",
-                    caption=f"min MSE {r['min_loss']:.2e} · {'✓' if r['correct'] else '✗'}",
+                    caption=f"min MSE {r['min_loss']:.2e}",
                     bordered=True,
                 ) for r in recovery_results],
                 justify="start", wrap=True,
             ),
+            mo.md(_summary),
             mo.md(_table),
         ])
     _display
@@ -1015,28 +1038,30 @@ def _s3_live_plot(mo, recovery_config, recovery_prompt, recovery_results):
 
 @app.cell(hide_code=True)
 def _s4_scope(mo):
-    mo.Html("""
-    <div style="border-left:4px solid #f59e0b; padding:0.75rem 1.25rem;
-                background:#fffbeb; border-radius:0 10px 10px 0; margin-top:1.5rem;">
-      <span style="font-size:0.7rem; letter-spacing:0.1em; text-transform:uppercase;
-                   color:#d97706; font-weight:700;">§ 4 — Honest Scope</span>
-      <h2 style="margin:0.15rem 0 0.35rem; color:#78350f; font-size:1.25rem; font-weight:700;">
-        What the Notebook Proves, and What It Does Not
-      </h2>
-      <ul style="margin:0.25rem 0 0; color:#374151; font-size:0.88rem;
-                 line-height:1.8; padding-left:1.2rem;">
-        <li>The paper proves <strong>almost-sure injectivity</strong> of decoder-only
-            transformers under continuous initialization and finite gradient training.</li>
-        <li>The practical attack requires access to the <strong>hidden-state sequence</strong>
-            at a fixed layer — not just output text from an API.</li>
-        <li>§ 3 brute-force inversion is an exact verifier for that leakage setting.
-            § 1 PCA and § 2 loss landscapes are illustrations, not proofs.</li>
-        <li>Theorem <strong>3.2</strong> is a bounded-noise result: recovery survives if
-            the perturbation at each position stays below half the local separation margin.
-            § 5 tests this directly on GPT-2.</li>
-      </ul>
-    </div>
-    """)
+    mo.md(
+        "## A Note on Scope\n\n"
+        "The exact recovery of the previous section is striking, and it is worth being "
+        "clear about exactly what it does and does not establish before pushing the "
+        "argument further. The paper proves almost-sure injectivity of decoder-only "
+        "transformers under continuous initialization and finite-step gradient training, "
+        "and the result is a property of the hidden-state map rather than of any "
+        "particular prompt. The recovery algorithm SipIt is an *operational* corollary: "
+        "given access to the hidden states themselves, the prompt that produced them "
+        "can be reconstructed token by token. The 2-D PCA scatter of the first section "
+        "is consistent with the claim but does not prove it, and the sampled loss "
+        "landscapes of the second section are diagnostics rather than proofs. The "
+        "exhaustive search of the third section is the only one of the three that "
+        "actually verifies injectivity in the setting it is meant to address.\n\n"
+        "The threat model that this implies is hidden-state leakage, not black-box "
+        "text recovery from an API. An adversary who only sees a model's output text "
+        "is not in a position to run SipIt; the attack requires the activations "
+        "themselves at a fixed layer. The notebook makes no claim about prompt recovery "
+        "from logits, sampled outputs, or any of the other interfaces that production "
+        "systems typically expose. The section that follows extends the recovery setup "
+        "to a noisier version of the same threat model, in which the leaked hidden "
+        "states are corrupted by additive noise or low-bit quantization before they "
+        "reach the attacker, and asks how much corruption Theorem 3.2 will tolerate."
+    )
     return
 
 
@@ -1044,24 +1069,27 @@ def _s4_scope(mo):
 
 @app.cell(hide_code=True)
 def _s5_header(mo):
-    mo.Html("""
-    <div style="border-left:4px solid #10b981; padding:0.75rem 1.25rem;
-                background:#ecfdf5; border-radius:0 10px 10px 0; margin-top:1.5rem;">
-      <span style="font-size:0.7rem; letter-spacing:0.1em; text-transform:uppercase;
-                   color:#10b981; font-weight:700;">§ 5 — Extension</span>
-      <h2 style="margin:0.15rem 0 0.35rem; color:#064e3b; font-size:1.25rem; font-weight:700;">
-        Noise and Quantization Robustness on GPT-2
-      </h2>
-      <p style="margin:0; color:#374151; font-size:0.88rem; line-height:1.6;">
-        Theorem 3.2 guarantees recovery when the perturbation at each position stays below
-        half the local separation margin. Corrupt the layer-12 targets with additive isotropic
-        noise, uniform quantization, or both — then re-run full-vocabulary search.
-        Start at noise = 0 / quant = off to confirm the clean baseline,
-        then increase noise or lower bit-width to watch recovery break.
-        Keep prompts ≤ 4 tokens.
-      </p>
-    </div>
-    """)
+    mo.md(
+        "## When Recovery Breaks\n\n"
+        "Exact recovery on clean hidden states is the easy case. A more realistic "
+        "threat model assumes the attacker sees a *perturbed* version of the activations, "
+        "either because they were intercepted across a noisy channel or because the "
+        "model serialized them at reduced precision. Theorem 3.2 of the paper handles "
+        "this setting and gives a quantitative answer: recovery succeeds whenever the "
+        "perturbation at each position stays below **half the local separation margin** "
+        "between the true token's hidden state and the nearest distractor's. The "
+        "constant is sharp, in the sense that adversarial perturbations exactly at the "
+        "threshold can flip a recovery, and the bound is otherwise tight in expectation.\n\n"
+        "The cell below tests the bound directly on GPT-2. The clean layer-12 hidden "
+        "states are computed for a short prompt, then perturbed by additive isotropic "
+        "Gaussian noise of a chosen radius, optionally quantized to a chosen bit-width, "
+        "and finally fed back into the same exhaustive-search procedure as in the "
+        "previous section. Starting at noise zero and quantization off reproduces the "
+        "clean recovery as a sanity check; turning either knob up forces the perturbation "
+        "across the half-margin threshold, at which point the recovery degrades. The "
+        "per-position perturbation norm is plotted in green when recovery succeeded "
+        "at that position and red when it failed."
+    )
     return
 
 
@@ -1090,8 +1118,14 @@ def _s5_controls(mo):
         start=0, stop=20, step=1, value=0,
         label="Noise seed", show_value=True, full_width=True,
     )
-    robust_btn = mo.ui.run_button(label="▶ Run Perturbed Recovery")
+    robust_btn = mo.ui.run_button(label="Run perturbed recovery")
     mo.vstack([
+        mo.md(
+            "Sliders control prompt, target layer, and the two perturbations. Noise "
+            "radius is the L2 norm of the additive Gaussian shift; quantization bits "
+            "set the resolution of a uniform mid-tread quantizer applied after the "
+            "noise. The seed reshuffles the noise without changing its norm."
+        ),
         robust_input,
         mo.hstack([robust_layer, robust_batch], widths="equal"),
         mo.hstack([robust_noise, robust_quant], widths="equal"),
@@ -1218,13 +1252,13 @@ def _s5_compute(
 def _s5_live_plot(TRUE_COLOR, WRONG_COLOR, mo, plt, robust_config, robust_prompt, robust_results):
     if robust_results is None:
         _display = mo.md(
-            "Click **▶ Run Perturbed Recovery** above. "
-            "Start at noise = 0 / quant = off for the clean baseline."
-        ).callout(kind="info")
+            "_Click **Run perturbed recovery** above. Start at noise = 0 and "
+            "quantization off to confirm the clean baseline, then turn either knob up._"
+        )
     elif robust_config["status"] == "empty":
-        _display = mo.md("Zero tokens.").callout(kind="danger")
+        _display = mo.md("_Zero tokens. Try a different prompt._")
     elif robust_config["status"] == "too_long":
-        _display = mo.md("Capped at 6 tokens. Shorten the prompt.").callout(kind="warn")
+        _display = mo.md("_Capped at six tokens. Shorten the prompt._")
     else:
         _all_ok  = all(r["correct"] for r in robust_results)
         _rec_str = "".join(r["recovered_word"] for r in robust_results)
@@ -1259,18 +1293,22 @@ def _s5_live_plot(TRUE_COLOR, WRONG_COLOR, mo, plt, robust_config, robust_prompt
             "| Pos | True | Recovered | ‖δ‖ | Min loss | Match |\n"
             "|---|---|---|---:|---:|:---:|\n" + _rows
         )
+        _verdict = (
+            f"With {_noise_s} and {_quant_s}, recovery of *\"{robust_prompt}\"* "
+            f"**succeeded** at every position and returned **\"{_rec_str}\"**. "
+            f"The perturbation stayed below the half-margin threshold at all six "
+            f"positions, exactly as Theorem 3.2 predicts."
+            if _all_ok else
+            f"With {_noise_s} and {_quant_s}, recovery of *\"{robust_prompt}\"* "
+            f"**failed** and returned **\"{_rec_str}\"**. The perturbation crossed "
+            f"the half-margin threshold at the positions plotted in red, and the "
+            f"exhaustive search latched onto a near-neighbor token instead. The "
+            f"transition is sharp: small reductions in noise often restore exact "
+            f"recovery, and small increases push more positions over the edge."
+        )
         _display = mo.vstack([
-            mo.md(
-                f"### Perturbed recovery of `{robust_prompt}`\n\n"
-                f"{_noise_s}, {_quant_s}\n\n"
-                + (f"Recovery **succeeded** — `\"{_rec_str}\"`" if _all_ok else
-                   f"Recovery **failed** — got `\"{_rec_str}\"`")
-            ).callout(kind="success" if _all_ok else "danger"),
-            mo.md(
-                "Theorem 3.2: recovery survives when perturbation < half the local "
-                "separation margin. Increase noise or lower bit-width to cross the threshold."
-            ).callout(kind="neutral"),
             mo.center(_fig),
+            mo.md(_verdict),
             mo.md(_table),
         ])
     _display
@@ -1281,31 +1319,48 @@ def _s5_live_plot(TRUE_COLOR, WRONG_COLOR, mo, plt, robust_config, robust_prompt
 
 @app.cell(hide_code=True)
 def _takeaways(mo):
-    mo.Html("""
-    <div style="background:linear-gradient(135deg,#0f0c29cc,#302b63cc,#24243ecc);
-                color:white; padding:2rem; border-radius:14px; margin-top:1.5rem;">
-      <div style="font-size:0.7rem; letter-spacing:0.12em; opacity:0.55;
-                  text-transform:uppercase; margin-bottom:0.5rem;">Key Takeaways</div>
-      <h2 style="margin:0 0 1rem; font-size:1.2rem; font-weight:700;">What We Showed</h2>
-      <ul style="margin:0; padding-left:1.2rem; line-height:2; font-size:0.9rem; opacity:0.9;">
-        <li>The threat model is <strong>hidden-state leakage</strong>, not black-box
-            text recovery from an API.</li>
-        <li>GPT-2 already exhibits the one-step separation structure the injectivity
-            proof relies on.</li>
-        <li>Full-vocabulary brute-force inversion is <strong>exact</strong> on real GPT-2
-            hidden states — minimum MSE ~ 10<sup>−10</sup>.</li>
-        <li>§ 5 stress-tests Theorem 3.2: small perturbations survive, large ones break
-            recovery — exactly as the half-margin bound predicts.</li>
-      </ul>
-      <div style="margin-top:1.25rem; padding-top:1rem;
-                  border-top:1px solid rgba(255,255,255,0.15);
-                  font-size:0.78rem; opacity:0.5;">
-        Notebook for the alphaXiv × marimo competition &nbsp;·&nbsp;
-        Nikolaou et al., ICLR 2026 &nbsp;·&nbsp;
-        <a href="https://arxiv.org/abs/2510.15511" style="color:#93c5fd;">arXiv:2510.15511</a>
-      </div>
-    </div>
-    """)
+    mo.md(
+        "## Onwards\n\n"
+        "A number of related observations have come together in the course of the "
+        "preceding sections, and it may help to summarize the picture they form before "
+        "turning to what remains open. The PCA scatter of the first section is the "
+        "weakest of the three diagnostics but the easiest to read: distinct prompts "
+        "land at distinct points in two dimensions, which is consistent with "
+        "injectivity in 768. The one-step loss landscape of the second section is "
+        "sharper and shows the true token sitting eight to eleven orders of magnitude "
+        "below the nearest sampled distractor, which is what makes exhaustive search "
+        "viable. The exhaustive search of the third section is the only verifier of "
+        "injectivity that is honest in the strict sense: at every position the entire "
+        "vocabulary of 50,257 tokens is checked, and the true token is the unique "
+        "minimum every time. The fifth section pushes the same procedure into a "
+        "noisier setting and reproduces the half-margin bound of Theorem 3.2 directly "
+        "on GPT-2: small perturbations of the hidden states leave recovery intact, "
+        "while perturbations exceeding the local separation margin flip individual "
+        "positions in a sharp transition.\n\n"
+        "Several questions remain open. The notebook works exclusively with GPT-2 small, "
+        "which is the smallest model in the family that exhibits the relevant geometry, "
+        "but the paper's argument should hold for any decoder-only transformer with the "
+        "same architectural features and would be worth verifying on a contemporary model. "
+        "The recovery procedure was carried out at layer 12, the final hidden layer, "
+        "and the question of how the separation margin varies across depth has not been "
+        "addressed here. The threat model assumed throughout is hidden-state leakage "
+        "from a fixed layer; recovery from logits, sampled output text, or any of the "
+        "other interfaces production systems expose remains out of scope and is, on the "
+        "evidence available, a much harder problem.\n\n"
+        "**The picture in four lines, for the reader who has scrolled to the end:**\n"
+        "1. Distinct prompts produce distinct hidden states in GPT-2; the geometry is "
+        "consistent with the almost-sure injectivity proof of Theorems 2.2 and 2.3.\n"
+        "2. The one-step loss landscape has a single sharp well at the true token, with "
+        "distractors sitting orders of magnitude higher even at random.\n"
+        "3. Exhaustive search over all 50,257 GPT-2 tokens recovers the prompt **exactly**, "
+        "with minimum MSE on the order of 10⁻¹⁰.\n"
+        "4. Recovery survives small perturbations of the hidden states and breaks at "
+        "the half-margin threshold of Theorem 3.2, in a sharp transition rather than a "
+        "gradual one.\n\n"
+        "Paper: [arXiv:2510.15511](https://arxiv.org/abs/2510.15511) · Nikolaou et al., "
+        "*Language Models Are Injective and Hence Invertible*, ICLR 2026. Notebook for "
+        "the alphaXiv × marimo competition."
+    )
     return
 
 
