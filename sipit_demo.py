@@ -386,28 +386,41 @@ def _title(mo):
 @app.cell(hide_code=True)
 def _intro(mo):
     mo.md(
-        "The standard story about a language model goes as follows. A decoder-only "
-        "transformer maps an input sequence of tokens through many layers of attention "
-        "and feed-forward blocks, and at the top of the stack one reads off a probability "
-        "over the next token. The intermediate hidden states are usually treated as "
-        "instrumental: useful for prediction, not necessarily meaningful in themselves. "
-        "The puzzle is that several recent results suggest the opposite. Nikolaou et al. "
-        "([arXiv:2510.15511](https://arxiv.org/abs/2510.15511), ICLR 2026) prove that the "
-        "map from input sequences to hidden states is almost surely **injective**, meaning "
-        "two distinct prompts of the same length never collide at the same internal "
-        "representation, and that this property is preserved through training.\n\n"
-        "The practical consequence is sharper than the statement makes it sound. If the "
-        "map is injective then it is, in principle, invertible: anyone with access to a "
-        "model's hidden state can reconstruct the prompt that produced it. The paper "
-        "offers an algorithm, SipIt, that does this in linear time per token by exhaustive "
-        "search over the vocabulary. Theorem 3.2 then quantifies how much the hidden "
-        "states can be perturbed before recovery starts to fail, framed in terms of a "
-        "local separation margin that the geometry already supplies.\n\n"
-        "The remainder of this notebook works through the claim on the smallest model "
-        "that exhibits all of the relevant behavior: GPT-2 small, 124 M parameters, run "
-        "on CPU. The setting is rich enough to demonstrate every piece of the argument "
-        "the paper develops, and small enough that the inversion can be carried out live "
-        "in a browser tab."
+        r"""
+The standard story about a language model goes as follows. A decoder-only transformer
+maps an input sequence of tokens through many layers of attention and feed-forward
+blocks, and at the top of the stack one reads off a probability over the next token.
+The intermediate hidden states are usually treated as instrumental: useful for
+prediction, not necessarily meaningful in themselves. The puzzle is that several
+recent results suggest the opposite. Nikolaou et al.
+([arXiv:2510.15511](https://arxiv.org/abs/2510.15511), ICLR 2026) prove that the
+map from input sequences to hidden states is almost surely **injective**, meaning
+two distinct prompts of the same length never collide at the same internal
+representation, and that this property is preserved through training. Writing
+$h_t(\pi)$ for the hidden state of a transformer at layer $t$ on prompt $\pi$, the
+claim is that
+
+$$
+\pi \neq \pi' \quad\Longrightarrow\quad h_t(\pi) \neq h_t(\pi'),
+$$
+
+with probability one over a continuous initialization, and that gradient training
+preserves the property up to a measure-zero exceptional set.
+
+The practical consequence is sharper than the statement makes it sound. If the
+map is injective then it is, in principle, invertible: anyone with access to a
+model's hidden state can reconstruct the prompt that produced it. The paper
+offers an algorithm, **SipIt**, that does this in linear time per token by exhaustive
+search over the vocabulary. Theorem 3.2 then quantifies how much the hidden
+states can be perturbed before recovery starts to fail, framed in terms of a
+local separation margin that the geometry already supplies.
+
+The remainder of this notebook works through the claim on the smallest model
+that exhibits all of the relevant behavior: GPT-2 small, 124 M parameters, run
+on CPU. The setting is rich enough to demonstrate every piece of the argument
+the paper develops, and small enough that the inversion can be carried out live
+in a browser tab.
+        """.strip()
     )
     return
 
@@ -527,24 +540,33 @@ def _s1_plot(PCA_COLORS, T, custom, mo, np, plt, xy_custom):
 @app.cell(hide_code=True)
 def _s2_header(mo):
     mo.md(
-        "## The One-Step Loss Landscape\n\n"
-        "The injectivity proof of the paper rests on a one-step argument. Fix a prefix "
-        "of tokens and ask, for every candidate next token *v* in the vocabulary, what "
-        "hidden state the model produces for the extended sequence. Theorem 2.2 says "
-        "that the resulting map *v* ↦ *h*(π ⊕ v) is injective with probability one, "
-        "which means exactly one candidate produces the hidden state actually observed. "
-        "If one defines a loss as the squared distance between the candidate's hidden "
-        "state and the observed one, the true token sits at zero and every other "
-        "candidate sits strictly above it. The picture is a flat landscape with a "
-        "single sharp well at the right token.\n\n"
-        "The figure below tests this directly on GPT-2. For each of the six tokens in "
-        "the prompt *\"The cat sat on the mat\"* the notebook samples 256 random "
-        "distractor tokens, runs each through the model with the appropriate prefix, "
-        "and plots the top-30 lowest-loss candidates on a log scale. The leftmost bar "
-        "in green is always the true token, and the right tail in blue collects the "
-        "best-of-256 distractors. The result is pre-computed at layer 12 and renders "
-        "instantly. The live controls below let you re-run the same procedure on a "
-        "prompt of your choosing once GPT-2 has loaded."
+        r"""
+## The One-Step Loss Landscape
+
+The injectivity proof of the paper rests on a one-step argument. Fix a prefix
+$\pi$ of tokens and ask, for every candidate next token $v$ in the vocabulary,
+what hidden state the model produces for the extended sequence $\pi \oplus v$.
+Theorem 2.2 says that the resulting map $v \mapsto h_t(\pi \oplus v)$ is
+injective with probability one, which means exactly one candidate produces
+the hidden state actually observed. Defining a per-candidate loss as the
+squared distance between its hidden state and the observed one,
+
+$$
+\mathcal{L}(v) \;=\; \big\| h_t(\pi \oplus v) - h_t^{\mathrm{obs}} \big\|^2,
+$$
+
+the true token sits at zero and every other candidate sits strictly above it.
+The picture is a flat landscape with a single sharp well at the right token.
+
+The figure below tests this directly on GPT-2. For each of the six tokens in
+the prompt *"The cat sat on the mat"* the notebook samples 256 random
+distractor tokens, runs each through the model with the appropriate prefix,
+and plots the top-30 lowest-loss candidates on a log scale. The leftmost bar
+in green is always the true token, and the right tail in blue collects the
+best-of-256 distractors. The result is pre-computed at layer 12 and renders
+instantly. The live controls below let you re-run the same procedure on a
+prompt of your choosing once GPT-2 has loaded.
+        """.strip()
     )
     return
 
@@ -810,23 +832,34 @@ def _s2_live_plot(DIST_COLOR, TRUE_COLOR, landscape_prompt, landscape_results, m
 @app.cell(hide_code=True)
 def _s3_header(mo):
     mo.md(
-        "## Exact Prompt Recovery\n\n"
-        "The previous section establishes that the true token is the unique near-zero "
-        "minimizer of the one-step loss when 256 random distractors are thrown against "
-        "it. The injectivity claim of the paper is stronger: it says the true token is "
-        "the unique near-zero minimizer when **every** token in the vocabulary is "
-        "considered. SipIt, the recovery algorithm of Section 3, takes this literally. "
-        "At each position it sweeps all 50,257 GPT-2 tokens, runs each one through the "
-        "model with the recovered prefix, and picks the token whose hidden state matches "
-        "the observed one most closely. Because the loss landscape has a single sharp "
-        "well at the right token, the procedure recovers the original prompt exactly.\n\n"
-        "The result for *\"Hello world how\"* is shown below. The recovery was carried "
-        "out at layer 12 over the full vocabulary, so each value is a true minimum over "
-        "50,257 candidates rather than over a sample. The minimum MSE at each position "
-        "sits in the 10⁻⁸ to 10⁻¹¹ range, which is several orders of magnitude lower "
-        "than the next-best distractor and well within the noise floor of the floating-"
-        "point arithmetic. Recovery is exact at every position. Live controls follow "
-        "for verifying the result on a short prompt of your own choosing."
+        r"""
+## Exact Prompt Recovery
+
+The previous section establishes that the true token is the unique near-zero
+minimizer of the one-step loss when 256 random distractors are thrown against
+it. The injectivity claim of the paper is stronger: it says the true token is
+the unique near-zero minimizer when **every** token in the vocabulary is
+considered. SipIt, the recovery algorithm of Section 3, takes this literally.
+At each position $i$ it sweeps the entire vocabulary $\mathcal{V}$, runs each
+candidate through the model with the recovered prefix $\hat\pi_{<i}$, and
+picks the token whose hidden state matches the observed one most closely:
+
+$$
+\hat v_i \;=\; \arg\min_{v \in \mathcal{V}}\, \big\| h_t(\hat\pi_{<i} \oplus v) - h_t^{\mathrm{obs}}[i] \big\|^2.
+$$
+
+Because the loss landscape has a single sharp well at the right token, the
+procedure recovers the original prompt exactly, in time linear in the prompt
+length and the vocabulary size.
+
+The result for *"Hello world how"* is shown below. The recovery was carried
+out at layer 12 over the full vocabulary, so each value is a true minimum over
+50,257 candidates rather than over a sample. The minimum MSE at each position
+sits in the $10^{-8}$ to $10^{-11}$ range, which is several orders of magnitude
+lower than the next-best distractor and well within the noise floor of the
+floating-point arithmetic. Recovery is exact at every position. Live controls
+follow for verifying the result on a short prompt of your own choosing.
+        """.strip()
     )
     return
 
@@ -1038,30 +1071,59 @@ def _s3_live_plot(mo, recovery_config, recovery_prompt, recovery_results):
 
 @app.cell(hide_code=True)
 def _s4_scope(mo):
-    mo.md(
-        "## A Note on Scope\n\n"
-        "The exact recovery of the previous section is striking, and it is worth being "
-        "clear about exactly what it does and does not establish before pushing the "
-        "argument further. The paper proves almost-sure injectivity of decoder-only "
-        "transformers under continuous initialization and finite-step gradient training, "
-        "and the result is a property of the hidden-state map rather than of any "
-        "particular prompt. The recovery algorithm SipIt is an *operational* corollary: "
-        "given access to the hidden states themselves, the prompt that produced them "
-        "can be reconstructed token by token. The 2-D PCA scatter of the first section "
-        "is consistent with the claim but does not prove it, and the sampled loss "
-        "landscapes of the second section are diagnostics rather than proofs. The "
-        "exhaustive search of the third section is the only one of the three that "
-        "actually verifies injectivity in the setting it is meant to address.\n\n"
-        "The threat model that this implies is hidden-state leakage, not black-box "
-        "text recovery from an API. An adversary who only sees a model's output text "
-        "is not in a position to run SipIt; the attack requires the activations "
-        "themselves at a fixed layer. The notebook makes no claim about prompt recovery "
-        "from logits, sampled outputs, or any of the other interfaces that production "
-        "systems typically expose. The section that follows extends the recovery setup "
-        "to a noisier version of the same threat model, in which the leaked hidden "
-        "states are corrupted by additive noise or low-bit quantization before they "
-        "reach the attacker, and asks how much corruption Theorem 3.2 will tolerate."
-    )
+    mo.vstack([
+        mo.md(
+            "## A Note on Scope\n\n"
+            "The exact recovery of the previous section is striking, and it is worth "
+            "being clear about exactly what it does and does not establish before "
+            "pushing the argument further. The three accordion items below cover the "
+            "three questions readers ask most often in this order: what each section "
+            "actually proves, what threat model the recovery is operating under, and "
+            "where the underlying theorems sit in the paper."
+        ),
+        mo.accordion({
+            "1. What each section actually verifies":
+                mo.md(
+                    "The 2-D PCA scatter of § 1 is consistent with the injectivity "
+                    "claim but does not prove it: a projection into two coordinates "
+                    "can only ever rule out collisions in those two, never confirm "
+                    "their absence in the remaining 766. The sampled loss landscapes "
+                    "of § 2 are diagnostics rather than proofs, since they only verify "
+                    "separation against 256 random distractors per position. The "
+                    "exhaustive full-vocabulary search of § 3 is the only one of the "
+                    "three that actually verifies injectivity in the setting the "
+                    "paper analyzes; it leaves no candidate untested. § 5 then "
+                    "stress-tests the recovery against the perturbation budget of "
+                    "Theorem 3.2 and reproduces the half-margin transition directly."
+                ),
+            "2. The threat model is hidden-state leakage":
+                mo.md(
+                    "The recovery procedure assumes access to the hidden-state "
+                    "sequence at a fixed layer, not just to the model's output text. "
+                    "An adversary who only sees sampled tokens, logits, or any of "
+                    "the other interfaces that production systems typically expose "
+                    "is not in a position to run SipIt. The attack surface this "
+                    "addresses is **activation leakage**: hidden states intercepted "
+                    "in transit, dumped to disk, exposed by an introspection API, "
+                    "or otherwise made visible to a party that should not have them. "
+                    "Recovery from output text alone is a strictly harder problem "
+                    "and out of scope here."
+                ),
+            "3. Where the theorems sit in the paper":
+                mo.md(
+                    "**Theorem 2.2** (almost-sure injectivity at initialization) is "
+                    "the foundational result and follows from a measure-theoretic "
+                    "argument over the continuous parameter space of a decoder-only "
+                    "transformer. **Theorem 2.3** lifts this to the trained model by "
+                    "showing that finite-step gradient descent preserves the property "
+                    "up to a measure-zero exceptional set. **Theorem 3.2** is the "
+                    "robustness statement and gives the half-margin bound that § 5 "
+                    "tests directly. The constructive recovery algorithm SipIt is "
+                    "stated as Algorithm 1 in Section 3 and runs in time linear in "
+                    "the prompt length and the vocabulary size."
+                ),
+        }, multiple=True),
+    ], gap=0.5)
     return
 
 
@@ -1070,25 +1132,36 @@ def _s4_scope(mo):
 @app.cell(hide_code=True)
 def _s5_header(mo):
     mo.md(
-        "## When Recovery Breaks\n\n"
-        "Exact recovery on clean hidden states is the easy case. A more realistic "
-        "threat model assumes the attacker sees a *perturbed* version of the activations, "
-        "either because they were intercepted across a noisy channel or because the "
-        "model serialized them at reduced precision. Theorem 3.2 of the paper handles "
-        "this setting and gives a quantitative answer: recovery succeeds whenever the "
-        "perturbation at each position stays below **half the local separation margin** "
-        "between the true token's hidden state and the nearest distractor's. The "
-        "constant is sharp, in the sense that adversarial perturbations exactly at the "
-        "threshold can flip a recovery, and the bound is otherwise tight in expectation.\n\n"
-        "The cell below tests the bound directly on GPT-2. The clean layer-12 hidden "
-        "states are computed for a short prompt, then perturbed by additive isotropic "
-        "Gaussian noise of a chosen radius, optionally quantized to a chosen bit-width, "
-        "and finally fed back into the same exhaustive-search procedure as in the "
-        "previous section. Starting at noise zero and quantization off reproduces the "
-        "clean recovery as a sanity check; turning either knob up forces the perturbation "
-        "across the half-margin threshold, at which point the recovery degrades. The "
-        "per-position perturbation norm is plotted in green when recovery succeeded "
-        "at that position and red when it failed."
+        r"""
+## When Recovery Breaks
+
+Exact recovery on clean hidden states is the easy case. A more realistic
+threat model assumes the attacker sees a *perturbed* version of the activations,
+either because they were intercepted across a noisy channel or because the
+model serialized them at reduced precision. Theorem 3.2 of the paper handles
+this setting and gives a quantitative answer: recovery succeeds whenever the
+per-position perturbation $\delta_i$ stays below **half the local separation
+margin** between the true token's hidden state and the nearest distractor's,
+
+$$
+\|\delta_i\| \;<\; \tfrac{1}{2}\, \min_{v \neq v_i^\star}
+  \big\| h_t(\pi_{<i} \oplus v) - h_t(\pi_{<i} \oplus v_i^\star) \big\|.
+$$
+
+The constant $\tfrac{1}{2}$ is sharp, in the sense that adversarial perturbations
+exactly at the threshold can flip a recovery, and the bound is otherwise tight in
+expectation.
+
+The cell below tests the bound directly on GPT-2. The clean layer-12 hidden
+states are computed for a short prompt, then perturbed by additive isotropic
+Gaussian noise of a chosen radius, optionally quantized to a chosen bit-width,
+and finally fed back into the same exhaustive-search procedure as in the
+previous section. Starting at noise zero and quantization off reproduces the
+clean recovery as a sanity check; turning either knob up forces the perturbation
+across the half-margin threshold, at which point the recovery degrades. The
+per-position perturbation norm is plotted in green when recovery succeeded
+at that position and red when it failed.
+        """.strip()
     )
     return
 
@@ -1320,46 +1393,64 @@ def _s5_live_plot(TRUE_COLOR, WRONG_COLOR, mo, plt, robust_config, robust_prompt
 @app.cell(hide_code=True)
 def _takeaways(mo):
     mo.md(
-        "## Onwards\n\n"
-        "A number of related observations have come together in the course of the "
-        "preceding sections, and it may help to summarize the picture they form before "
-        "turning to what remains open. The PCA scatter of the first section is the "
-        "weakest of the three diagnostics but the easiest to read: distinct prompts "
-        "land at distinct points in two dimensions, which is consistent with "
-        "injectivity in 768. The one-step loss landscape of the second section is "
-        "sharper and shows the true token sitting eight to eleven orders of magnitude "
-        "below the nearest sampled distractor, which is what makes exhaustive search "
-        "viable. The exhaustive search of the third section is the only verifier of "
-        "injectivity that is honest in the strict sense: at every position the entire "
-        "vocabulary of 50,257 tokens is checked, and the true token is the unique "
-        "minimum every time. The fifth section pushes the same procedure into a "
-        "noisier setting and reproduces the half-margin bound of Theorem 3.2 directly "
-        "on GPT-2: small perturbations of the hidden states leave recovery intact, "
-        "while perturbations exceeding the local separation margin flip individual "
-        "positions in a sharp transition.\n\n"
-        "Several questions remain open. The notebook works exclusively with GPT-2 small, "
-        "which is the smallest model in the family that exhibits the relevant geometry, "
-        "but the paper's argument should hold for any decoder-only transformer with the "
-        "same architectural features and would be worth verifying on a contemporary model. "
-        "The recovery procedure was carried out at layer 12, the final hidden layer, "
-        "and the question of how the separation margin varies across depth has not been "
-        "addressed here. The threat model assumed throughout is hidden-state leakage "
-        "from a fixed layer; recovery from logits, sampled output text, or any of the "
-        "other interfaces production systems expose remains out of scope and is, on the "
-        "evidence available, a much harder problem.\n\n"
-        "**The picture in four lines, for the reader who has scrolled to the end:**\n"
-        "1. Distinct prompts produce distinct hidden states in GPT-2; the geometry is "
-        "consistent with the almost-sure injectivity proof of Theorems 2.2 and 2.3.\n"
-        "2. The one-step loss landscape has a single sharp well at the true token, with "
-        "distractors sitting orders of magnitude higher even at random.\n"
-        "3. Exhaustive search over all 50,257 GPT-2 tokens recovers the prompt **exactly**, "
-        "with minimum MSE on the order of 10⁻¹⁰.\n"
-        "4. Recovery survives small perturbations of the hidden states and breaks at "
-        "the half-margin threshold of Theorem 3.2, in a sharp transition rather than a "
-        "gradual one.\n\n"
-        "Paper: [arXiv:2510.15511](https://arxiv.org/abs/2510.15511) · Nikolaou et al., "
-        "*Language Models Are Injective and Hence Invertible*, ICLR 2026. Notebook for "
-        "the alphaXiv × marimo competition."
+        r"""
+## Onwards
+
+A number of related observations have come together in the course of the
+preceding sections, and it may help to summarize the picture they form before
+turning to what remains open. The PCA scatter of the first section is the
+weakest of the three diagnostics but the easiest to read: distinct prompts
+land at distinct points in two dimensions, which is consistent with
+injectivity in 768. The one-step loss landscape of the second section is
+sharper and shows the true token sitting eight to eleven orders of magnitude
+below the nearest sampled distractor, which is what makes exhaustive search
+viable. The exhaustive search of the third section is the only verifier of
+injectivity that is honest in the strict sense: at every position the entire
+vocabulary of 50,257 tokens is checked, and the true token is the unique
+minimum every time. The fifth section pushes the same procedure into a
+noisier setting and reproduces the half-margin bound of Theorem 3.2 directly
+on GPT-2: small perturbations of the hidden states leave recovery intact,
+while perturbations exceeding the local separation margin flip individual
+positions in a sharp transition.
+
+The five sections then collapse into the following one-line summary, with
+each row pointing at the part of the paper it verifies and the strength of
+the evidence the notebook supplies:
+
+| Section | What it shows | Paper reference | Verifier strength |
+|---|---|---|---|
+| § 1 | Distinct prompts land at distinct points in PCA(2) | Thm 2.2 / 2.3 | suggestive only |
+| § 2 | True token is the unique near-zero minimizer vs 256 distractors | Lemma 3.1 | sampled |
+| § 3 | True token is the unique minimizer over **all** 50,257 candidates | Algorithm 1 (SipIt) | exhaustive |
+| § 5 | Recovery survives $\|\delta\| < \tfrac{1}{2}\,\mathrm{margin}$, breaks above | Thm 3.2 | empirical |
+
+Several questions remain open. The notebook works exclusively with GPT-2 small,
+which is the smallest model in the family that exhibits the relevant geometry,
+but the paper's argument should hold for any decoder-only transformer with the
+same architectural features and would be worth verifying on a contemporary model.
+The recovery procedure was carried out at layer 12, the final hidden layer,
+and the question of how the separation margin varies across depth has not been
+addressed here. The threat model assumed throughout is hidden-state leakage
+from a fixed layer; recovery from logits, sampled output text, or any of the
+other interfaces production systems expose remains out of scope and is, on the
+evidence available, a much harder problem.
+
+**The picture in four lines, for the reader who has scrolled to the end:**
+
+1. Distinct prompts produce distinct hidden states in GPT-2; the geometry is
+   consistent with the almost-sure injectivity proof of Theorems 2.2 and 2.3.
+2. The one-step loss landscape has a single sharp well at the true token, with
+   distractors sitting orders of magnitude higher even at random.
+3. Exhaustive search over all 50,257 GPT-2 tokens recovers the prompt **exactly**,
+   with minimum MSE on the order of $10^{-10}$.
+4. Recovery survives small perturbations of the hidden states and breaks at
+   the half-margin threshold of Theorem 3.2, in a sharp transition rather than
+   a gradual one.
+
+Paper: [arXiv:2510.15511](https://arxiv.org/abs/2510.15511) · Nikolaou et al.,
+*Language Models Are Injective and Hence Invertible*, ICLR 2026. Notebook for
+the alphaXiv × marimo competition.
+        """.strip()
     )
     return
 
