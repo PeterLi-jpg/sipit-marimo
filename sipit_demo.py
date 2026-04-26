@@ -361,7 +361,7 @@ $$
         mo.md(
             rf"""
 The practical corollary: an injective map is, in principle, *invertible*. The
-paper exhibits **SipIt**, an algorithm that does it in linear time per token by
+paper exhibits **SipIt** (Nikolaou et al.'s Algorithm 1), which does it in linear time per token by
 exhaustive search over the vocabulary. Theorem 3.2 then bounds how much the
 hidden states can be perturbed before recovery breaks. This notebook works the
 whole argument out on GPT-2 small (124 M params, {T.VOCAB_SIZE:,}-token BPE,
