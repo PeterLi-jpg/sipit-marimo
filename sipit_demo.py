@@ -131,10 +131,32 @@ def _hero_picker(T, mo):
         stop=len(_h_landscape) - 1,
         step=1,
         value=2,
-        label='Dissect a position of *"The cat sat on the mat"* (drives panel 2 below)',
+        label='Position in *"The cat sat on the mat"*',
         show_value=True,
     )
-    hero_pos
+    # Build reactive token pill row — selected position glows blue
+    _pos = hero_pos.value
+    _pill_parts = []
+    for _i, _r in enumerate(_h_landscape):
+        _tok = _r["true_token"].replace("<", "&lt;").replace(">", "&gt;").strip() or "∅"
+        if _i == _pos:
+            _pill_style = (
+                "background:#2563eb;color:white;font-weight:700;"
+                "box-shadow:0 0 0 3px #bfdbfe;"
+            )
+        else:
+            _pill_style = "background:#f1f5f9;color:#64748b;"
+        _pill_parts.append(
+            f"<span style='{_pill_style}padding:6px 14px;border-radius:20px;"
+            f"font-family:monospace;font-size:13px;display:inline-block'>{_tok}</span>"
+        )
+    mo.vstack([
+        hero_pos,
+        mo.md(
+            f"<div style='display:flex;gap:8px;flex-wrap:wrap;align-items:center;"
+            f"padding:6px 2px'>{''.join(_pill_parts)}</div>"
+        ),
+    ], gap=0)
     return (hero_pos,)
 
 
@@ -169,24 +191,31 @@ def _hero(DIST_COLOR, TRUE_COLOR, T, hero_pos, mo, np, plt):
     )
     _ax1.grid(True, alpha=0.15)
 
-    # ── Panel 2: loss landscape at the user-selected position ───────────
+    # ── Panel 2: loss landscape — scatter valley with star ───────────────
     _ax2 = _fig.add_subplot(_gs[0, 1])
-    _vals = np.array(_selected["top30_losses"])
-    _plotted = np.where(_vals <= 0, 1e-15, _vals)
-    _colors2 = [TRUE_COLOR if _it else DIST_COLOR
-                for _it in _selected["top30_is_true"]]
-    _ax2.bar(range(len(_vals)), _plotted,
-             color=_colors2, alpha=0.88, width=0.85,
-             edgecolor="white", linewidth=0.4, zorder=3)
+    _vals2 = np.array(_selected["top30_losses"])
+    _plotted2 = np.where(_vals2 <= 0, 1e-15, _vals2)
+    _true_idx2 = next(i for i, v in enumerate(_selected["top30_is_true"]) if v)
+    _dist_xs2 = [x for x, v in enumerate(_selected["top30_is_true"]) if not v]
+    _dist_ys2 = [_plotted2[x] for x in _dist_xs2]
+    # Distractors as small dots, true token as gold star
+    _ax2.scatter(_dist_xs2, _dist_ys2, s=20, color=DIST_COLOR,
+                 alpha=0.65, zorder=3, edgecolors="none")
+    _ax2.scatter([_true_idx2], [_plotted2[_true_idx2]], s=200, marker="*",
+                 color=TRUE_COLOR, zorder=5, edgecolors="white", linewidth=0.8)
+    # Median distractor reference line + gap ratio label
+    _med2 = _selected["median_rand"]
+    _ax2.axhline(_med2, color=DIST_COLOR, lw=0.9, ls="--", alpha=0.5, zorder=2)
+    _gap2 = _med2 / max(_selected["true_loss"], 1e-15)
+    _ax2.text(0.97, 0.97, f"×{_gap2:.0e}",
+              transform=_ax2.transAxes, ha="right", va="top",
+              fontsize=9, color=TRUE_COLOR, fontweight="700")
     _ax2.set_yscale("log")
     _ax2.set_title(
-        f"§ 2  Landscape — pos {hero_pos.value}  {_selected['true_token']!r}",
+        f"§ 2  Landscape  {_selected['true_token'].strip()!r}",
         fontsize=10.5, fontweight="600", color="#1e293b", pad=4, loc="left",
     )
-    _ax2.set_xlabel(
-        f"top-30 of {_selected['sample_count']} candidates · log MSE",
-        fontsize=8.5, color="#6b7280",
-    )
+    _ax2.set_xlabel("top-30 candidates  ★ = true token", fontsize=8.5, color="#6b7280")
     _ax2.set_xticks([])
     _ax2.grid(True, alpha=0.15, axis="y", zorder=0)
 
@@ -259,11 +288,11 @@ def _hero(DIST_COLOR, TRUE_COLOR, T, hero_pos, mo, np, plt):
         ),
         mo.center(_fig),
         mo.md(
-            f"The picture above is the entire notebook in one row. The dropdown "
+            f"The picture above is the entire notebook in one row. The slider "
             f"redraws panel 2 only — every other panel is fixed pre-computed "
             f"data and renders the moment the page loads. The full sections "
             f"below expand each panel into its own argument and provide "
-            f"interactive dropdowns to flip through other prompts, layers, "
+            f"interactive controls to flip through other prompts, layers, "
             f"perturbation levels, and steganographic payloads."
         ),
     ], gap=0.5)
@@ -533,49 +562,74 @@ def _s2_plot(DIST_COLOR, TRUE_COLOR, T, landscape_picker, mo, np, plt):
     _layer_idx = int(_layer_str)
 
     def _draw_panels():
-        ncols = len(_results)
-        _fig, axes = plt.subplots(1, ncols, figsize=(2.7 * ncols, 3.6),
-                                 constrained_layout=True)
-        if ncols == 1:
-            axes = [axes]
-        for res, _ax in zip(_results, axes):
-            colors = [TRUE_COLOR if it else DIST_COLOR
-                      for it in res["top30_is_true"]]
-            vals = np.array(res["top30_losses"])
-            plotted = np.where(vals <= 0, 1e-15, vals)
-            _ax.bar(range(len(vals)), plotted, color=colors, alpha=0.85, width=0.8)
-            _ax.set_yscale("log")
-            _ax.set_title(
-                f"pos {res['tok_idx']} · {res['true_token']!r}",
-                fontsize=10, color=TRUE_COLOR, fontweight="bold", pad=2,
+        # Heatmap: rows = token positions, cols = candidates sorted by loss
+        # Cell color = log10(candidate_loss / true_token_loss)
+        # True token is always at col 0 (rank 1) when rank == 1
+        _n_pos = len(_results)
+        _n_cand = min(30, min(len(r["top30_losses"]) for r in _results))
+        _hmap = np.zeros((_n_pos, _n_cand))
+        _true_cols = []
+        _row_labels = []
+        for _ri, _res in enumerate(_results):
+            _tl = max(_res["true_loss"], 1e-15)
+            _v = np.array(_res["top30_losses"][:_n_cand])
+            _v = np.where(_v <= 0, 1e-15, _v)
+            _hmap[_ri] = np.log10(_v / _tl)
+            _true_cols.append(
+                next(i for i, v in enumerate(_res["top30_is_true"][:_n_cand]) if v)
             )
-            _ax.set_xlabel(
-                f"true {res['true_loss']:.0e} · rank {res['rank']}",
-                fontsize=8.5, color="#6b7280", labelpad=2,
-            )
-            if _ax is axes[0]:
-                _ax.set_ylabel("MSE loss (log)")
-            _ax.set_xticks([])
+            _row_labels.append(_res["true_token"].strip() or "∅")
+        _vmax = max(12.0, float(_hmap.max()))
+        _fig, _ax = plt.subplots(
+            figsize=(7.5, max(2.4, _n_pos * 0.6 + 1.2)),
+            constrained_layout=True,
+        )
+        _im = _ax.imshow(_hmap, aspect="auto", cmap="RdYlGn_r", vmin=0, vmax=_vmax)
+        for _ri, _tc in enumerate(_true_cols):
+            _ax.scatter([_tc], [_ri], s=90, color="white", marker="*",
+                        zorder=5, linewidths=0.5, edgecolors="#1e293b")
+        _ax.set_yticks(range(_n_pos))
+        _ax.set_yticklabels(_row_labels, fontsize=11, color=TRUE_COLOR, fontweight="700")
+        _cbar = _fig.colorbar(_im, ax=_ax, shrink=0.75, pad=0.01)
+        _cbar.set_label("log₁₀(loss ÷ true-token loss)", fontsize=8)
+        _ax.set_xlabel(
+            "Candidates ranked by MSE (left = lowest)  ·  ★ = true token",
+            fontsize=9,
+        )
+        _ax.set_title(
+            f'Loss landscape: "{_prompt}"  ·  layer {_layer_idx}',
+            fontsize=10, pad=6, fontweight="600",
+        )
+        _ax.set_xticks([])
+        _ax.spines["top"].set_visible(False)
+        _ax.spines["right"].set_visible(False)
         return _fig
 
     def _draw_ratios():
-        ratios = [r["median_rand"] / max(r["true_loss"], 1e-15) for r in _results]
-        _labels = [r["true_token"] for r in _results]
-        _fig, _ax = plt.subplots(figsize=(max(4, len(ratios) * 1.1), 3.0),
-                               constrained_layout=True)
-        bars = _ax.bar(_labels, ratios, color=TRUE_COLOR, alpha=0.85, zorder=3)
-        _ax.set_yscale("log")
-        _ax.set_ylim(top=max(ratios) * 20)
-        _ax.set_xlabel("Token")
-        _ax.set_ylabel("Margin ratio (log)")
-        _ax.set_title(
-            "Sampled margin ratio: median distractor ÷ true-token loss",
-            fontsize=9.5,
+        # Horizontal lollipop chart — cleaner than vertical bars for token labels
+        _ratios = [r["median_rand"] / max(r["true_loss"], 1e-15) for r in _results]
+        _labels = [r["true_token"].strip() or "∅" for r in _results]
+        _fig, _ax = plt.subplots(
+            figsize=(6.0, max(2.4, len(_ratios) * 0.65 + 0.8)),
+            constrained_layout=True,
         )
-        _ax.grid(True, alpha=0.25, axis="y", zorder=0)
-        for bar, val in zip(bars, ratios):
-            _ax.text(bar.get_x() + bar.get_width() / 2, val * 2.5,
-                    f"{val:.0e}", ha="center", va="bottom", fontsize=7.5)
+        _ys = range(len(_ratios))
+        _ax.hlines(_ys, xmin=1, xmax=_ratios, color=TRUE_COLOR, lw=2.5, alpha=0.5)
+        _ax.scatter(_ratios, _ys, s=70, color=TRUE_COLOR, zorder=4,
+                    edgecolors="white", linewidth=0.9)
+        for _y, _r in zip(_ys, _ratios):
+            _ax.text(_r * 1.8, _y, f"×{_r:.1e}",
+                     va="center", fontsize=8.5, color="#1e293b", fontweight="500")
+        _ax.set_xlim(left=0.5, right=max(_ratios) * 8)
+        _ax.set_yticks(list(_ys))
+        _ax.set_yticklabels(_labels, fontsize=10.5, color=TRUE_COLOR, fontweight="700")
+        _ax.set_xscale("log")
+        _ax.set_xlabel("Median distractor ÷ true-token loss", fontsize=9)
+        _ax.set_title("Separation ratio per token position", fontsize=9.5, fontweight="600")
+        _ax.grid(True, alpha=0.18, axis="x", zorder=0)
+        _ax.axvline(1, color="#94a3b8", lw=0.8, ls=":")
+        _ax.spines["top"].set_visible(False)
+        _ax.spines["right"].set_visible(False)
         return _fig
 
     all_r1 = all(r["rank"] == 1 for r in _results)
