@@ -264,7 +264,8 @@ def _(
             _out = model(_ids, output_hidden_states=True)
             _h = _out.hidden_states[-1].squeeze(0).mean(0).cpu().numpy()
         xy_custom = pca.transform(_h.reshape(1, -1))[0]
-        ax.scatter(*xy_custom, s=280, color="black", marker="*", zorder=10)
+        ax.scatter(*xy_custom, s=280, color="black", marker="*", zorder=10,
+                   label="★  Your sentence")
         ax.annotate(
             f'"{custom}"',
             xy_custom,
@@ -274,6 +275,7 @@ def _(
             color="black",
             fontweight="bold",
         )
+        ax.legend(loc="lower right", fontsize=8.5, framealpha=0.8)
 
     n_pairs = len(base_sentences) * (len(base_sentences) - 1) // 2
     ax.set_title(
@@ -285,13 +287,17 @@ def _(
     ax.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]:.0%} variance explained)")
     ax.grid(True, alpha=0.2)
 
+    _note = (
+        f" The black star is your sentence — **`\"{custom}\"`**." if custom else
+        " Type a sentence above to add it as a black star."
+    )
     mo.vstack(
         [
             fig,
             mo.md(
                 f"Minimum pairwise L2 distance across {n_pairs} prompt pairs: "
                 f"**{min_pairwise_dist:.2f}**. Each sentence lands at a distinct point — "
-                "consistent with injectivity, though not a proof of it."
+                f"consistent with injectivity, though not a proof of it.{_note}"
             ).callout(kind="neutral"),
         ]
     )
