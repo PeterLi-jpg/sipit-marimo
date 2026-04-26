@@ -4,6 +4,5 @@ __marimo__/
 *.pyo
 .DS_Store
 
-*.json
-extract_more.py
 prompt_recovery_cpu_outline.py
+toolkit_data.json
