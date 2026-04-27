@@ -37,7 +37,9 @@ so it has **no torch / transformers dependency** and loads instantly in WASM.
 
 **§ 4 — Honest scope.** What the paper proves, what this notebook demonstrates, and what neither claims (e.g. recovering prompts from API output text).
 
-**§ 5 — Extension: robustness to noise and quantization.** Applies additive isotropic noise and/or uniform bit-width quantization to the leaked hidden states, then re-runs the full-vocabulary recovery. Tests Theorem 3.2 directly on GPT-2: recovery survives small perturbations and breaks as the perturbation approaches the local separation margin.
+**§ 5 — Extension: robustness to noise and quantization.** Applies additive isotropic noise and/or uniform bit-width quantization to the leaked hidden states, then re-runs the full-vocabulary recovery. Tests Theorem 3.2 directly on GPT-2: recovery survives small perturbations and breaks as the perturbation approaches the local separation margin. A full 5 × 3 robustness heatmap and phase-transition curve show all (noise, quantization) combinations at once, with the Theorem 3.2 half-margin bounds overlaid so the theory and the experiment land on the same axes.
+
+**§ 6 — Extension: steganographic side channel.** Every correct recovery uses strictly less than the Theorem 3.2 noise budget. The leftover slack is a usable side channel: encode a secret payload as a perturbation δ with ‖δ‖ < ½ · margin, transmit the perturbed hidden state, and a receiver can recover *both* the original prompt (via SipIt) *and* the hidden message (by projecting the residual onto a shared orthonormal basis). The demo runs live in the browser — type any ASCII payload and watch encoding, decoding, and the per-position budget check update in real time. The channel capacity is 8 bits (one ASCII character) per token position.
 
 ## Key result
 

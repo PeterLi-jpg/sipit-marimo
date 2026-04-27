@@ -219,6 +219,7 @@ def _hero(DIST_COLOR, TRUE_COLOR, T, hero_pos, mo, np, plt):
         fontsize=10.5, fontweight="600", color="#1e293b", pad=4, loc="left",
     )
     _ax2.set_xlabel("top-30 candidates  ★ = true token", fontsize=8.5, color="#6b7280")
+    _ax2.set_ylabel("MSE loss", fontsize=8.5, color="#6b7280")
     _ax2.set_xticks([])
     _ax2.grid(True, alpha=0.15, axis="y", zorder=0)
 
@@ -242,6 +243,7 @@ def _hero(DIST_COLOR, TRUE_COLOR, T, hero_pos, mo, np, plt):
         f"min MSE over all {T.VOCAB_SIZE:,} tokens (log)",
         fontsize=8.5, color="#6b7280",
     )
+    _ax3.set_ylabel("min MSE", fontsize=8.5, color="#6b7280")
     _ax3.grid(True, alpha=0.15, axis="y", zorder=0)
     _ax3.set_ylim(bottom=10 ** (np.floor(np.log10(_true_losses.min())) - 0.5))
 
@@ -270,6 +272,7 @@ def _hero(DIST_COLOR, TRUE_COLOR, T, hero_pos, mo, np, plt):
         f"covers {len(T.STEGO_TOKEN_IDS) * 8} payload bits per cover prompt",
         fontsize=8.5, color="#6b7280",
     )
+    _ax4.set_ylabel("L2 norm", fontsize=8.5, color="#6b7280")
     _ax4.legend(loc="upper left", fontsize=8, framealpha=0.95)
     _ax4.grid(True, alpha=0.15, axis="y", zorder=0)
 
@@ -626,8 +629,9 @@ def _s2_plot(DIST_COLOR, TRUE_COLOR, T, landscape_picker, mo, np, plt):
                         zorder=5, linewidths=0.5, edgecolors="#1e293b")
         _ax.set_yticks(range(_n_pos))
         _ax.set_yticklabels(_row_labels, fontsize=11, color=TRUE_COLOR, fontweight="700")
+        _ax.set_ylabel("Token position", fontsize=9, color="#475569")
         _cbar = _fig.colorbar(_im, ax=_ax, shrink=0.75, pad=0.01)
-        _cbar.set_label("log₁₀(loss ÷ true-token loss)", fontsize=8)
+        _cbar.set_label("log₁₀(candidate loss ÷ true-token loss)", fontsize=8)
         _ax.set_xlabel(
             "Candidates ranked by MSE (left = lowest)  ·  ★ = true token",
             fontsize=9,
@@ -660,10 +664,12 @@ def _s2_plot(DIST_COLOR, TRUE_COLOR, T, landscape_picker, mo, np, plt):
         _ax.set_yticks(list(_ys))
         _ax.set_yticklabels(_labels, fontsize=10.5, color=TRUE_COLOR, fontweight="700")
         _ax.set_xscale("log")
-        _ax.set_xlabel("Median distractor ÷ true-token loss", fontsize=9)
+        _ax.set_xlabel("Median distractor ÷ true-token loss  (log scale)", fontsize=9)
+        _ax.set_ylabel("Token", fontsize=9, color="#475569")
         _ax.set_title("Separation ratio per token position", fontsize=9.5, fontweight="600")
         _ax.grid(True, alpha=0.18, axis="x", zorder=0)
-        _ax.axvline(1, color="#94a3b8", lw=0.8, ls=":")
+        _ax.axvline(1, color="#94a3b8", lw=0.8, ls=":", label="ratio = 1 (no gap)")
+        _ax.legend(fontsize=7.5, loc="lower right", framealpha=0.85)
         _ax.spines["top"].set_visible(False)
         _ax.spines["right"].set_visible(False)
         return _fig
@@ -683,6 +689,85 @@ def _s2_plot(DIST_COLOR, TRUE_COLOR, T, landscape_picker, mo, np, plt):
         mo.center(_draw_panels()),
         mo.center(_draw_ratios()),
         mo.md(_summary),
+    ])
+    return
+
+
+@app.cell(hide_code=True)
+def _s2_layer(DIST_COLOR, TRUE_COLOR, T, mo, np, plt):
+    """Layer-8 vs. layer-12 absolute distractor loss for the same prompt.
+    Both are pre-computed in T.LANDSCAPES; no model call needed.
+
+    The right metric here is the absolute median distractor MSE, not the ratio.
+    Both layers have true_loss ≈ 0 (numerical floor), so the ratio is dominated
+    by how tiny the denominator is — not how far distractors are pushed away.
+    Absolute median_rand tells the real story: layer 12 pushes distractors
+    ~4–5× further from the true token in hidden-state space."""
+    _prompt = "The cat sat on the mat"
+    _res8   = T.LANDSCAPES[f"{_prompt}|8"]
+    _res12  = T.LANDSCAPES[f"{_prompt}|12"]
+
+    # Absolute median distractor MSE — "how far away are the wrong tokens?"
+    _labels  = [r["true_token"].strip() or "∅" for r in _res8]
+    _med8    = np.array([r["median_rand"] for r in _res8])
+    _med12   = np.array([r["median_rand"] for r in _res12])
+    _true8   = np.array([max(r["true_loss"], 1e-20) for r in _res8])
+    _true12  = np.array([max(r["true_loss"], 1e-20) for r in _res12])
+
+    _fig, (_axL, _axR) = plt.subplots(
+        1, 2,
+        figsize=(10.0, max(2.8, len(_labels) * 0.7 + 1.0)),
+        constrained_layout=True,
+    )
+    _ys = np.arange(len(_labels))
+    _w  = 0.32
+
+    # Left: absolute median distractor MSE (higher = distractors pushed further)
+    _axL.barh(_ys - _w / 2, _med8,  _w, label="Layer 8",
+              color=DIST_COLOR, alpha=0.72, edgecolor="white", linewidth=0.8)
+    _axL.barh(_ys + _w / 2, _med12, _w, label="Layer 12",
+              color=TRUE_COLOR, alpha=0.88, edgecolor="white", linewidth=0.8)
+    _axL.set_yticks(_ys)
+    _axL.set_yticklabels(_labels, fontsize=11, fontweight="600", color="#1e293b")
+    _axL.set_ylabel("Token", fontsize=9, color="#475569")
+    _axL.set_xscale("log")
+    _axL.set_xlabel("Median distractor MSE  (higher = bigger gap)", fontsize=9)
+    _axL.set_title("Absolute distractor loss by layer", fontsize=10, fontweight="600")
+    _axL.legend(fontsize=8.5, framealpha=0.95)
+    _axL.grid(True, alpha=0.18, axis="x")
+    _axL.spines["top"].set_visible(False)
+    _axL.spines["right"].set_visible(False)
+
+    # Right: true-token MSE per layer (should be near-zero at both, ideally smaller)
+    _axR.barh(_ys - _w / 2, _true8,  _w, label="Layer 8",
+              color=DIST_COLOR, alpha=0.72, edgecolor="white", linewidth=0.8)
+    _axR.barh(_ys + _w / 2, _true12, _w, label="Layer 12",
+              color=TRUE_COLOR, alpha=0.88, edgecolor="white", linewidth=0.8)
+    _axR.set_yticks(_ys)
+    _axR.set_yticklabels([], fontsize=9)
+    _axR.set_xscale("log")
+    _axR.set_xlabel("True-token MSE  (lower = tighter minimum)", fontsize=9)
+    _axR.set_title("True-token loss by layer", fontsize=10, fontweight="600")
+    _axR.legend(fontsize=8.5, framealpha=0.95)
+    _axR.grid(True, alpha=0.18, axis="x")
+    _axR.spines["top"].set_visible(False)
+    _axR.spines["right"].set_visible(False)
+
+    # Layer 12 pushes distractors further (left panel wins bigger) while
+    # true_loss stays near-zero at both layers (right panel).
+    _factor = float(np.mean(_med12[1:] / np.maximum(_med8[1:], 1e-30)))
+    mo.vstack([
+        mo.md(
+            "**Does layer depth affect how well the map inverts?** "
+            f"Same prompt, same {T.DISTRACTOR_SAMPLES} distractors, two layers. "
+            f"**Left:** how far distractors sit from the true-token well — "
+            f"layer 12 pushes them **{_factor:.1f}× further** on average. "
+            f"**Right:** how close the true-token minimum is to zero — "
+            f"both layers are near-zero (numerical floor), confirming the well "
+            f"is equally tight. "
+            f"Layer 12 wins by making the gap *wider*, not the minimum tighter."
+        ),
+        mo.center(_fig),
     ])
     return
 
@@ -932,14 +1017,32 @@ def _s5_show(TRUE_COLOR, WRONG_COLOR, T, mo, noise_picker, plt, quant_picker):
     _labels = [repr(r["true_word"]).strip("'") for r in _results]
     _norms = [r["perturbation_norm"] for r in _results]
     _bcolors = [TRUE_COLOR if r["correct"] else WRONG_COLOR for r in _results]
-    _ax.bar(_labels, _norms, color=_bcolors, alpha=0.85)
-    _ax.set_xlabel("Token")
-    _ax.set_ylabel("Perturbation ‖δ‖")
-    _ax.set_title(
-        "Per-position perturbation norm  (green = correct, red = wrong)",
-        fontsize=10,
-    )
-    _ax.grid(True, alpha=0.2, axis="y")
+    _ax.bar(_labels, _norms, color=_bcolors, alpha=0.85, zorder=3)
+
+    # Overlay half-margin threshold per position (Theorem 3.2 bound).
+    # STEGO_HALF_MARGINS are computed for the same prompt ("Hello world"),
+    # so their per-position margins align with the bar positions here.
+    _half_margins = [m / 2 for m in T.STEGO_HALF_MARGINS[: len(_results)]]
+    for _xi, _hm in enumerate(_half_margins):
+        _ax.hlines(
+            _hm, _xi - 0.42, _xi + 0.42,
+            colors="#f59e0b", lw=2.0, ls="--", zorder=5,
+        )
+
+    from matplotlib.patches import Patch
+    _legend_handles = [
+        Patch(color=TRUE_COLOR, alpha=0.85, label="Correct recovery"),
+        Patch(color=WRONG_COLOR, alpha=0.85, label="Wrong recovery"),
+        plt.Line2D([], [], color="#f59e0b", lw=2.0, ls="--",
+                   label="½ margin (Thm 3.2 bound)"),
+    ]
+    _ax.legend(handles=_legend_handles, fontsize=8, loc="upper left", framealpha=0.95)
+    _ax.set_xlabel("Token position", fontsize=9)
+    _ax.set_ylabel("Perturbation ‖δ‖  (L2 norm)", fontsize=9)
+    _ax.set_title("Per-position perturbation norm vs. Theorem 3.2 bound", fontsize=10)
+    _ax.grid(True, alpha=0.2, axis="y", zorder=0)
+    _ax.spines["top"].set_visible(False)
+    _ax.spines["right"].set_visible(False)
 
     _rows = "\n".join(
         f"| {r['pos']} | `{r['true_word']}` | `{r['recovered_word']}` "
@@ -966,6 +1069,126 @@ def _s5_show(TRUE_COLOR, WRONG_COLOR, T, mo, noise_picker, plt, quant_picker):
         mo.center(_fig),
         mo.md(_verdict),
         mo.md(_table),
+    ])
+    return
+
+
+@app.cell(hide_code=True)
+def _s5_transition(TRUE_COLOR, T, mo, np, plt):
+    """Full 5×3 recovery grid as a heatmap + phase-transition line plot.
+    The heatmap shows all (noise, quant) combinations at once; the line
+    plot overlays the Theorem 3.2 half-margin bounds so the reader can
+    see exactly where the theory predicts failures to begin."""
+    _noise_levels = T.PERTURB_NOISE_LEVELS          # [0.0, 0.5, 1.0, 2.0, 5.0]
+    _quant_levels = sorted(T.PERTURB_QUANT_LEVELS)  # [0, 4, 8]
+
+    # Build accuracy matrix (rows = quant, cols = noise)
+    _rate = np.zeros((len(_quant_levels), len(_noise_levels)))
+    for _qi, _qb in enumerate(_quant_levels):
+        for _ni, _nr in enumerate(_noise_levels):
+            _key = f"{_nr}|{_qb}"
+            if _key not in T.PERTURB_RESULTS:
+                for _k in T.PERTURB_RESULTS:
+                    _kn, _kq = _k.split("|")
+                    if float(_kn) == _nr and int(_kq) == _qb:
+                        _key = _k
+                        break
+            _res = T.PERTURB_RESULTS[_key]
+            _rate[_qi, _ni] = sum(r["correct"] for r in _res) / len(_res)
+
+    # ── Figure 1: full-grid heatmap ────────────────────────────────────────
+    _fig1, _ax1 = plt.subplots(figsize=(7.0, 2.4), constrained_layout=True)
+    _im = _ax1.imshow(_rate, aspect="auto", cmap="RdYlGn",
+                      vmin=0, vmax=1, interpolation="nearest")
+    for _qi in range(len(_quant_levels)):
+        for _ni in range(len(_noise_levels)):
+            _v = _rate[_qi, _ni]
+            _tc = "white" if _v < 0.35 or _v > 0.75 else "#1e293b"
+            _ax1.text(_ni, _qi, f"{_v:.0%}",
+                      ha="center", va="center",
+                      fontsize=13, fontweight="700", color=_tc)
+    _ax1.set_xticks(range(len(_noise_levels)))
+    _ax1.set_xticklabels([f"‖δ‖={n}" for n in _noise_levels], fontsize=8.5)
+    _ax1.set_yticks(range(len(_quant_levels)))
+    _ax1.set_yticklabels(
+        ["no quant" if q == 0 else f"{q}-bit" for q in _quant_levels],
+        fontsize=8.5,
+    )
+    _ax1.set_xlabel("Noise radius", fontsize=9)
+    _ax1.set_ylabel("Quantization", fontsize=9)
+    _ax1.set_title(
+        f"Recovery accuracy — full {len(_noise_levels)} × {len(_quant_levels)} grid"
+        f" on \"{T.PERTURB_PROMPT}\"",
+        fontsize=10, fontweight="600",
+    )
+    _fig1.colorbar(_im, ax=_ax1, shrink=0.85, label="Fraction recovered correctly")
+
+    # ── Figure 2: phase-transition curve (no-quant row) + Thm 3.2 bounds ──
+    # T.STEGO_HALF_MARGINS are the per-position full min-distances;
+    # Theorem 3.2's bound is ||delta|| < margin / 2.
+    _half_margins = np.array(T.STEGO_HALF_MARGINS) / 2
+    _tok_labels   = [t.strip() or "∅" for t in T.STEGO_TOKENS]
+    _bound_colors = ["#f59e0b", "#8b5cf6"]
+    _no_quant_rates = _rate[0] * 100   # quant=0, percentages
+
+    # X-axis: extend just past the smallest half-margin so the binding
+    # threshold is always visible; note any off-chart thresholds in text.
+    _x_max = max(max(_noise_levels) * 1.2, float(min(_half_margins)) * 1.4)
+
+    _fig2, _ax2 = plt.subplots(figsize=(6.5, 2.8), constrained_layout=True)
+    _ax2.axvspan(0, float(min(_half_margins)), alpha=0.07,
+                 color="#10b981", zorder=0, label="Thm 3.2 safe zone")
+    _ax2.plot(_noise_levels, _no_quant_rates, "o-",
+              color=TRUE_COLOR, lw=2.0, ms=7, zorder=4,
+              label="Recovery rate (no quant)")
+    _off_chart = []
+    for _i, (_hm, _tok) in enumerate(zip(_half_margins, _tok_labels)):
+        if float(_hm) <= _x_max:
+            _ax2.axvline(float(_hm), color=_bound_colors[_i % len(_bound_colors)],
+                         lw=1.5, ls="--", zorder=3,
+                         label=f"½ margin · '{_tok}' = {_hm:.1f}")
+        else:
+            _off_chart.append(f"'{_tok}' = {_hm:.1f}")
+    _ax2.set_xlim(-0.15, _x_max)
+    _ax2.set_ylim(-8, 112)
+    _ax2.set_yticks([0, 50, 100])
+    _ax2.set_yticklabels(["0 %", "50 %", "100 %"])
+    _ax2.set_xlabel("Noise radius ‖δ‖", fontsize=9)
+    _ax2.set_ylabel("Recovery rate", fontsize=9)
+    _ax2.set_title(
+        "Phase transition: recovery rate vs. noise (no quantization)",
+        fontsize=10, fontweight="600",
+    )
+    _ax2.legend(fontsize=8, framealpha=0.95)
+    _ax2.grid(True, alpha=0.2, axis="y")
+    _ax2.spines["top"].set_visible(False)
+    _ax2.spines["right"].set_visible(False)
+
+    _any_fail = bool((_rate < 1.0).any())
+    _offchart_note = (
+        f" (additional bound{'s' if len(_off_chart) > 1 else ''} "
+        f"off-chart: {', '.join(_off_chart)})"
+        if _off_chart else ""
+    )
+    _narrative = (
+        "The tested noise levels all fall within the theoretical safe zone "
+        f"(shaded green). Recovery holds at 100% throughout. "
+        f"The dashed line marks ½ margin for each token position — the point "
+        f"at which Theorem 3.2 stops guaranteeing recovery"
+        f"{_offchart_note}."
+        if not _any_fail else
+        "Recovery breaks down sharply as ‖δ‖ approaches the half-margin bound "
+        f"(dashed lines). The heatmap shows the full picture{_offchart_note}."
+    )
+    mo.vstack([
+        mo.md(
+            "**The full robustness landscape — every cell at once.** "
+            "The slider above shows one grid cell. "
+            "Here is every cell simultaneously, with the Theorem 3.2 "
+            "bounds overlaid on the transition curve."
+        ),
+        mo.hstack([mo.center(_fig1), mo.center(_fig2)], widths="equal"),
+        mo.md(_narrative),
     ])
     return
 
@@ -1089,14 +1312,17 @@ def _s6_show(DIST_COLOR, T, TRUE_COLOR, mo, np, payload_input, plt):
         _labels = [f"pos {i}  ({T.STEGO_TOKENS[i].strip() or '∅'})"
                    for i in range(_n_pos)]
         _ax.set_xticks(_x)
-        _ax.set_xticklabels(_labels)
-        _ax.set_ylabel("L2 norm")
+        _ax.set_xticklabels(_labels, fontsize=9)
+        _ax.set_xlabel("Token position", fontsize=9)
+        _ax.set_ylabel("L2 norm", fontsize=9)
         _ax.set_title(
-            "Budget check — every blue bar must stay below its green bar",
+            "Budget check — ‖δ‖ (blue) must stay below ½ margin (green)",
             fontsize=10.5,
         )
         _ax.legend(loc="upper left", fontsize=9, framealpha=0.95)
-        _ax.grid(True, alpha=0.2, axis="y")
+        _ax.grid(True, alpha=0.2, axis="y", zorder=0)
+        _ax.spines["top"].set_visible(False)
+        _ax.spines["right"].set_visible(False)
         return _fig
 
     # ── Figure 2: carrier for each token position (one column per position) ─────
@@ -1104,8 +1330,13 @@ def _s6_show(DIST_COLOR, T, TRUE_COLOR, mo, np, payload_input, plt):
         _n_show = 96
         _fig, _axes = plt.subplots(
             2, _n_pos,
-            figsize=(5.5 * _n_pos, 3.6),
+            figsize=(5.5 * _n_pos, 4.2),
             sharex=True, constrained_layout=True,
+        )
+        _fig.suptitle(
+            "Row 1: clean hidden state vs. perturbed (clean + δ)  ·  "
+            "Row 2: payload perturbation δ (bits encoded as signs)",
+            fontsize=9, color="#475569",
         )
         # Normalise axes to always be 2-D array
         if _n_pos == 1:
@@ -1116,28 +1347,35 @@ def _s6_show(DIST_COLOR, T, TRUE_COLOR, mo, np, payload_input, plt):
             _b = _bytes[_pi]
             _char = chr(_b) if 32 <= _b < 127 else f"\\x{_b:02x}"
             _bits_str = f"{_b:08b}"
-            # Top: clean vs perturbed
+            # Top row: clean vs perturbed hidden state
             _axes[0, _pi].plot(_clean[_pi, :_n_show], color=TRUE_COLOR, lw=1.1,
                                label=f"clean h({_tok!r})")
             _axes[0, _pi].plot(_perturbed[_pi, :_n_show], color=DIST_COLOR,
-                               lw=1.1, alpha=0.85, label="clean + δ")
+                               lw=1.1, alpha=0.85, label="h + δ (perturbed)")
             _axes[0, _pi].set_title(
-                f"pos {_pi}  {_tok!r}  →  {_char!r}  ({_bits_str})",
-                fontsize=9.5, fontweight="600",
+                f"pos {_pi}  token={_tok!r}  →  char={_char!r}  bits={_bits_str}",
+                fontsize=9.0, fontweight="600",
             )
             _axes[0, _pi].legend(fontsize=8, loc="upper right", framealpha=0.9)
             _axes[0, _pi].grid(True, alpha=0.2)
+            _axes[0, _pi].spines["top"].set_visible(False)
+            _axes[0, _pi].spines["right"].set_visible(False)
             if _pi == 0:
-                _axes[0, _pi].set_ylabel("hidden value")
-            # Bottom: payload δ
+                _axes[0, _pi].set_ylabel("hidden-state value", fontsize=8.5)
+            # Bottom row: the payload perturbation δ itself
             _axes[1, _pi].plot(_deltas[_pi, :_n_show], color="#8b5cf6", lw=1.1,
-                               label=f"δ — bits: {_bits_str}")
-            _axes[1, _pi].axhline(0, color="#888", lw=0.5)
-            _axes[1, _pi].set_xlabel(f"dimension (first {_n_show} of {T.HIDDEN_DIM})")
+                               label=f"δ  (‖δ‖ = {_delta_norms[_pi]:.2f})")
+            _axes[1, _pi].axhline(0, color="#888", lw=0.5, ls="--")
+            _axes[1, _pi].set_xlabel(
+                f"Hidden dimension index (first {_n_show} of {T.HIDDEN_DIM})",
+                fontsize=8.5,
+            )
             _axes[1, _pi].legend(fontsize=8, loc="upper right", framealpha=0.9)
             _axes[1, _pi].grid(True, alpha=0.2)
+            _axes[1, _pi].spines["top"].set_visible(False)
+            _axes[1, _pi].spines["right"].set_visible(False)
             if _pi == 0:
-                _axes[1, _pi].set_ylabel("δ value")
+                _axes[1, _pi].set_ylabel("δ  (perturbation value)", fontsize=8.5)
         return _fig
 
     if not _trunc:
@@ -1191,7 +1429,43 @@ def _s6_show(DIST_COLOR, T, TRUE_COLOR, mo, np, payload_input, plt):
             mo.center(_draw_carrier()),
             mo.md(_verdict),
         ])
-    _display
+
+    _CODE_STR = """\
+import numpy as np
+
+# ── Shared basis (sender and receiver must agree on this seed) ────────
+rng   = np.random.RandomState(2026)
+bases = []
+for _ in range(n_pos):              # one orthonormal basis per token position
+    Q, _ = np.linalg.qr(rng.randn(hidden_dim, bits_per_pos))
+    bases.append(Q.T)               # shape: (bits_per_pos, hidden_dim)
+
+# ── Encode ────────────────────────────────────────────────────────────
+for pos, byte in enumerate(payload_bytes):
+    bits  = [(byte >> i) & 1 for i in range(7, -1, -1)]
+    signs = [2 * b - 1 for b in bits]           # {0,1} → {-1, +1}
+    # Scale so ||delta|| = 90% of Theorem 3.2 half-margin budget
+    m     = (margin[pos] / 2) / np.sqrt(bits_per_pos) * 0.9
+    delta = sum(signs[i] * m * bases[pos][i] for i in range(bits_per_pos))
+    hidden[pos] += delta             # perturb: still within budget
+
+# ── Decode ────────────────────────────────────────────────────────────
+# SipIt recovers the cover prompt first (exhaustive search, §3).
+# Then the receiver projects the residual onto the shared basis:
+decoded = bytearray()
+for pos in range(n_pos):
+    residual = hidden[pos] - clean_hidden[pos]   # ≈ delta
+    proj     = bases[pos] @ residual             # 8-element dot products
+    bits     = (proj > 0).astype(int)           # sign of each proj → bit
+    byte_val = sum(bits[i] << (7 - i) for i in range(bits_per_pos))
+    decoded.append(byte_val)
+
+payload_recovered = decoded.decode("ascii")
+"""
+    _code_section = mo.accordion(
+        {"Show encoding / decoding code": mo.md(f"```python\n{_CODE_STR}\n```")}
+    )
+    mo.vstack([_display, _code_section])
     return
 
 
