@@ -168,7 +168,9 @@ def _hero_roundtrip(DIST_COLOR, TRUE_COLOR, T, mo, np, plt):
         # ── Loss landscape across the top-30 candidates (middle) ──────
         _ax_mid = _fig.add_subplot(_gs[_i, 1])
         _v       = np.array(_scape[_i]["top30_losses"])
-        _v       = np.where(_v <= 0, 1e-15, _v)
+        # A loss of exactly 0.0 (perfect float match) would plot below the
+        # 1e-12 ylim and get clipped — clamp it to sit at the axis floor.
+        _v       = np.where(_v <= 0, 2e-12, _v)
         _is_true = np.array(_scape[_i]["top30_is_true"]).astype(bool)
         _xs      = np.arange(len(_v))
         _ax_mid.scatter(_xs[~_is_true], _v[~_is_true], s=22,
@@ -366,6 +368,18 @@ def _intro(T, mo):
         f"injectivity makes inversion possible</span></div>"
         f"</div>"
     )
+    _roadmap_md = (
+        r"""
+| § | Section | Question we answer | Verifier |
+|---|---|---|:---:|
+| 1 | Geometry | Does the encoding spread prompts apart? | <span style='color:#92400e;background:#fef3c7;padding:1px 6px;border-radius:6px;font-size:0.85em;'>SUGGESTIVE</span> |
+| 2 | Loss landscape | Is there a clean minimum to find? | <span style='color:#1e3a8a;background:#dbeafe;padding:1px 6px;border-radius:6px;font-size:0.85em;'>SAMPLED</span> |
+| 3 | Exact recovery | Does the decoder return the exact prompt? | <span style='color:#064e3b;background:#d1fae5;padding:1px 6px;border-radius:6px;font-size:0.85em;'>EXHAUSTIVE</span> |
+| 4 | Scope | What this notebook does *not* claim | <span style='color:#475569;background:#e2e8f0;padding:1px 6px;border-radius:6px;font-size:0.85em;'>CAVEAT</span> |
+| 5 | Robustness | Does it survive noise within the half-margin? | <span style='color:#1e3a8a;background:#dbeafe;padding:1px 6px;border-radius:6px;font-size:0.85em;'>EMPIRICAL</span> |
+| 6 | Steganography | What lives in the leftover budget? *(our extension)* | <span style='color:#5b21b6;background:#ede9fe;padding:1px 6px;border-radius:6px;font-size:0.85em;'>OUR EXTENSION</span> |
+        """.strip()
+    )
     mo.vstack([
         mo.md(
             "## The claim\n\n"
@@ -383,16 +397,26 @@ def _intro(T, mo):
             f"Theorem 3.2 bounds the allowed perturbation. **§ 6** (our extension) shows the "
             f"Theorem-3.2 slack is a usable steganographic channel."
         ),
+        mo.md(
+            "### Roadmap\n\n"
+            "**GPT-2 is the encoder. SipIt is the decoder.** The round-trip is lossless "
+            "because the encoding is injective. Each section below stress-tests one piece — "
+            "the verifier badge tells you how strong that section's evidence is."
+        ),
+        mo.md(_roadmap_md),
         mo.callout(
             mo.md(
-                f"**GPT-2 is the encoder. SipIt is the decoder.** "
-                f"The round-trip is lossless because the encoding is injective. "
-                f"Each section below stress-tests one piece: "
-                f"§ 1 *does the encoding spread prompts apart?* · "
-                f"§ 2 *is there a clean minimum to find?* · "
-                f"§ 3 *does the decoder return the exact prompt?* · "
-                f"§ 5 *does it survive noise?* · "
-                f"§ 6 *what lives in the unused budget?* (our extension)"
+                "**How to read the badges.** "
+                "<span style='color:#92400e;background:#fef3c7;padding:1px 6px;border-radius:6px;font-size:0.85em;'>SUGGESTIVE</span> = "
+                "visual / intuition only. "
+                "<span style='color:#1e3a8a;background:#dbeafe;padding:1px 6px;border-radius:6px;font-size:0.85em;'>SAMPLED</span> = "
+                "tested on a finite sample. "
+                "<span style='color:#064e3b;background:#d1fae5;padding:1px 6px;border-radius:6px;font-size:0.85em;'>EXHAUSTIVE</span> = "
+                "checked against every token in the vocabulary. "
+                "<span style='color:#1e3a8a;background:#dbeafe;padding:1px 6px;border-radius:6px;font-size:0.85em;'>EMPIRICAL</span> = "
+                "measured, not proven. "
+                "<span style='color:#5b21b6;background:#ede9fe;padding:1px 6px;border-radius:6px;font-size:0.85em;'>OUR EXTENSION</span> = "
+                "beyond the paper."
             ),
             kind="info",
         ),
@@ -1484,31 +1508,29 @@ def _takeaways(T, mo, np):
     _med_loss = float(np.median(_all_min_loss))
     _med_exp = int(_math.floor(_math.log10(_med_loss)))
 
-    _table_md = (
-        rf"""
-| § | Claim | Reference | Strength |
-|---|---|---|:---:|
-| 1 | Distinct prompts → distinct points in PCA(2) | Thm 2.2 / 2.3 | <span style='color:#92400e;background:#fef3c7;padding:1px 6px;border-radius:6px;font-size:0.85em;'>SUGGESTIVE</span> |
-| 2 | True token is unique near-zero minimizer vs {T.DISTRACTOR_SAMPLES} distractors | Lemma 3.1 | <span style='color:#1e3a8a;background:#dbeafe;padding:1px 6px;border-radius:6px;font-size:0.85em;'>SAMPLED</span> |
-| 3 | True token is unique minimizer over **all {T.VOCAB_SIZE:,}** | Algorithm 1 | <span style='color:#064e3b;background:#d1fae5;padding:1px 6px;border-radius:6px;font-size:0.85em;'>EXHAUSTIVE</span> |
-| 5 | Recovery survives $\|\delta\| < \tfrac{{1}}{{2}}\,\mathrm{{margin}}$ | Thm 3.2 | <span style='color:#1e3a8a;background:#dbeafe;padding:1px 6px;border-radius:6px;font-size:0.85em;'>EMPIRICAL</span> |
-| 6 | Same budget carries an ASCII payload | Thm 3.2 (constructive) | <span style='color:#5b21b6;background:#ede9fe;padding:1px 6px;border-radius:6px;font-size:0.85em;'>OUR EXTENSION</span> |
-        """.strip()
+    _verdict_md = (
+        "## The round-trip is complete\n\n"
+        "Five questions, five answers, one consistent picture:\n\n"
+        "- **§ 1 — Geometry.** Distinct prompts land at distinct points; the encoding spreads them apart. ✓\n"
+        "- **§ 2 — Loss landscape.** The true token sits at a unique near-zero minimum versus a sampled field of distractors. ✓\n"
+        f"- **§ 3 — Exact recovery.** Exhaustive argmin over all {T.VOCAB_SIZE:,} GPT-2 tokens returns the prompt verbatim. ✓\n"
+        r"- **§ 5 — Robustness.** Recovery holds for $\|\delta\| < \tfrac{1}{2}\,\mathrm{margin}$ and breaks sharply past it. ✓"
+        "\n"
+        f"- **§ 6 — Steganography.** The same budget carries {len(T.STEGO_TOKEN_IDS) * 8} bits of ASCII without changing the recovered tokens. ✓\n"
     )
     _tldr_md = (
         rf"**TL;DR.** The loss-landscape gap is **{_orders_lo}–{_orders_hi} "
-        rf"orders of magnitude**, which is what makes exhaustive search viable. "
+        rf"orders of magnitude** — that's what makes exhaustive search viable. "
         rf"Median min MSE across pre-computed recoveries: $\sim 10^{{{_med_exp}}}$. "
-        rf"Recovery breaks sharply at the half-margin threshold (§ 5); the "
-        rf"leftover budget carries {len(T.STEGO_TOKEN_IDS) * 8} bits of ASCII "
-        rf"payload (§ 6)."
+        rf"Recovery breaks sharply at the half-margin (§ 5); the leftover budget "
+        rf"carries {len(T.STEGO_TOKEN_IDS) * 8} bits of ASCII payload (§ 6)."
     )
     _open_md = (
-        "**Open questions.** The notebook uses GPT-2 small only — the argument "
-        "should generalize to contemporary models but hasn't been verified there. "
-        "Margin scaling across depth is unexplored (we work at layer 12 throughout). "
-        "The threat model assumed throughout is hidden-state leakage; recovery "
-        "from logits or sampled output is out of scope and likely much harder."
+        "**Open questions.** GPT-2 small only — the argument should generalize "
+        "to contemporary models but hasn't been verified there. Margin scaling "
+        "across depth is unexplored (we work at layer 12 throughout). The threat "
+        "model is hidden-state leakage; recovery from logits or sampled output "
+        "is out of scope and likely much harder."
         "\n\n---\n\n"
         "Paper: [arXiv:2510.15511](https://arxiv.org/abs/2510.15511) · "
         "Nikolaou et al., *Language Models Are Injective and Hence Invertible*, "
@@ -1516,16 +1538,7 @@ def _takeaways(T, mo, np):
         "\n\n*Notebook by Peter Li · Brandon Yee · Jacob Crainic for the alphaXiv × marimo competition.*"
     )
     mo.vstack([
-        mo.md(
-            "## The round-trip is complete\n\n"
-            "The encoding spreads prompts apart (§ 1). "
-            "The landscape has a unique minimum (§ 2). "
-            "The decoder finds it exactly (§ 3). "
-            "It survives noise within the half-margin (§ 5). "
-            "The leftover budget carries a hidden message (§ 6). "
-            "Here is every claim, its evidence level, and its paper anchor:"
-        ),
-        mo.md(_table_md),
+        mo.md(_verdict_md),
         mo.callout(mo.md(_tldr_md), kind="success"),
         mo.md(_open_md),
     ], gap=0.5)
