@@ -12,16 +12,17 @@ In molab (browser, no install):
 https://molab.marimo.io/github/PeterLi-jpg/sipit-marimo/blob/main/sipit_demo.py/wasm?mode=read&show-code=false
 ```
 
-Locally:
+Locally (no virtual env needed — `uvx` resolves dependencies inline):
 
 ```bash
-uv venv
-uv pip install marimo numpy matplotlib
-uvx marimo run sipit_demo.py
+uvx --with numpy --with matplotlib marimo run sipit_demo.py
 ```
 
-The notebook ships with all GPT-2 outputs pre-computed and embedded as data,
-so it has **no torch / transformers dependency** and loads instantly in WASM.
+The notebook ships with every GPT-2 hidden state, loss landscape, and
+recovery result **pre-computed and embedded as data** (~125 KB JSON inside
+the notebook), so it has **no torch / transformers dependency** and loads
+instantly in WASM. Only `marimo`, `numpy`, and `matplotlib` are needed at
+run time.
 
 ## Files
 

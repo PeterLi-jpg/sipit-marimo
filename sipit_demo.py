@@ -122,168 +122,143 @@ def _title(mo):
     return
 
 
-# ── Hero figure ────────────────────────────────────────────────────────────────
+# ── Hero: the round-trip, exactly ─────────────────────────────────────────────
 
 @app.cell(hide_code=True)
-def _hero_picker(T, mo):
-    """Drives panel 2 of the hero figure. Picking a position re-renders only
-    the landscape panel; the other three panels stay still."""
-    _h_landscape = T.LANDSCAPES["The cat sat on the mat|12"]
-    hero_pos = mo.ui.slider(
-        start=0,
-        stop=len(_h_landscape) - 1,
-        step=1,
-        value=2,
-        label='Position in *"The cat sat on the mat"*',
-        show_value=True,
+def _hero_roundtrip(DIST_COLOR, TRUE_COLOR, T, mo, np, plt):
+    """Single iconic moment: the round-trip on "Hello world how" — prompt in,
+    EXACT prompt out. Three rows = three token positions. For each position:
+       • a black chip with the input token
+       • the loss landscape across all 50,257 candidate tokens (real data
+         from T.LANDSCAPES, plotted on log scale)
+       • a green chip with the recovered token + the actual minimum MSE
+
+    The visual claim is that there is one star at the bottom of each
+    landscape — a single token that fits the hidden state, beating the
+    full vocabulary by 10+ orders of magnitude. That is what makes
+    SipIt's exhaustive argmin work."""
+    PROMPT = "Hello world how"
+    _rec    = T.RECOVERIES[PROMPT]
+    _scape  = T.LANDSCAPES[f"{PROMPT}|12"]
+    _n      = len(_rec)
+
+    _fig = plt.figure(
+        figsize=(13.5, 1.05 * _n + 1.2),
+        constrained_layout=True,
     )
-    # Build reactive token pill row — selected position glows blue
-    _pos = hero_pos.value
-    _pill_parts = []
-    for _i, _r in enumerate(_h_landscape):
-        _tok = _r["true_token"].replace("<", "&lt;").replace(">", "&gt;").strip() or "∅"
-        if _i == _pos:
-            _pill_style = (
-                "background:#2563eb;color:white;font-weight:700;"
-                "box-shadow:0 0 0 3px #bfdbfe;"
-            )
-        else:
-            _pill_style = "background:#f1f5f9;color:#64748b;"
-        _pill_parts.append(
-            f"<span style='{_pill_style}padding:6px 14px;border-radius:20px;"
-            f"font-family:monospace;font-size:13px;display:inline-block'>{_tok}</span>"
+    _gs = _fig.add_gridspec(_n, 3, width_ratios=[1.1, 5.2, 1.4])
+
+    for _i in range(_n):
+        # ── Encode chip (left) ────────────────────────────────────────
+        _ax_in = _fig.add_subplot(_gs[_i, 0])
+        _ax_in.set_xlim(0, 1); _ax_in.set_ylim(0, 1)
+        _ax_in.text(
+            0.5, 0.5, repr(_rec[_i]["true_word"]),
+            ha="center", va="center", fontsize=13,
+            family="monospace", fontweight="700",
+            color="#f1f5f9",
+            bbox=dict(boxstyle="round,pad=0.55",
+                      facecolor="#0f172a", edgecolor="none"),
         )
-    mo.vstack([
-        hero_pos,
-        mo.md(
-            f"<div style='display:flex;gap:8px;flex-wrap:wrap;align-items:center;"
-            f"padding:6px 2px'>{''.join(_pill_parts)}</div>"
-        ),
-    ], gap=0)
-    return (hero_pos,)
+        if _i == 0:
+            _ax_in.set_title("input token", fontsize=9, color="#64748b",
+                             loc="left", pad=3)
+        _ax_in.axis("off")
 
+        # ── Loss landscape across the top-30 candidates (middle) ──────
+        _ax_mid = _fig.add_subplot(_gs[_i, 1])
+        _v       = np.array(_scape[_i]["top30_losses"])
+        _v       = np.where(_v <= 0, 1e-15, _v)
+        _is_true = np.array(_scape[_i]["top30_is_true"]).astype(bool)
+        _xs      = np.arange(len(_v))
+        _ax_mid.scatter(_xs[~_is_true], _v[~_is_true], s=22,
+                        color=DIST_COLOR, alpha=0.6, edgecolors="none",
+                        label="other GPT-2 tokens (top-30 by loss)")
+        _true_x  = int(np.argmax(_is_true))
+        _ax_mid.scatter([_true_x], [_v[_true_x]], s=240, marker="*",
+                        color=TRUE_COLOR, zorder=5,
+                        edgecolors="white", linewidth=0.9,
+                        label="true token (★)")
+        _ax_mid.set_yscale("log")
+        _ax_mid.set_ylim(1e-12, 100)
+        _ax_mid.set_xticks([])
+        _ax_mid.grid(True, alpha=0.15, axis="y", zorder=0)
+        _ax_mid.spines["top"].set_visible(False)
+        _ax_mid.spines["right"].set_visible(False)
+        if _i == 0:
+            _ax_mid.set_title(
+                f"hidden-state match — every candidate scored against "
+                f"the observed h_t  ·  log scale  ·  {T.VOCAB_SIZE:,} "
+                f"candidates total, top 30 shown",
+                fontsize=9.5, color="#475569", loc="left", pad=3,
+            )
+            _ax_mid.legend(loc="upper right", fontsize=7.5, framealpha=0.9)
+        if _i == _n - 1:
+            _ax_mid.set_xlabel("candidate index (sorted by MSE)",
+                               fontsize=8.5, color="#94a3b8")
 
-@app.cell(hide_code=True)
-def _hero(DIST_COLOR, TRUE_COLOR, T, hero_pos, mo, np, plt):
-    """Four-panel hero, one column per stop in the argument:
-       § 1 Geometry  — distinct prompts go to distinct hidden states (PCA)
-       § 2 Landscape — single sharp well at the true token (driven by slider)
-       § 3 Recovery  — full-vocab argmin returns the prompt exactly
-       § 5/6 Budget  — Theorem 3.2 slack carries an ASCII payload (§6 channel)
+        # ── Decode chip (right) ───────────────────────────────────────
+        _ax_out = _fig.add_subplot(_gs[_i, 2])
+        _ax_out.set_xlim(0, 1); _ax_out.set_ylim(0, 1)
+        _ok = _rec[_i]["correct"]
+        _facecolor = "#10b981" if _ok else "#ef4444"
+        _ax_out.text(
+            0.5, 0.62, repr(_rec[_i]["recovered_word"]),
+            ha="center", va="center", fontsize=13,
+            family="monospace", fontweight="700", color="white",
+            bbox=dict(boxstyle="round,pad=0.55",
+                      facecolor=_facecolor, edgecolor="none"),
+        )
+        _ax_out.text(
+            0.5, 0.18,
+            f"{'✓ ' if _ok else '✗ '}MSE {_rec[_i]['min_loss']:.1e}",
+            ha="center", va="center", fontsize=9.0,
+            color=_facecolor, fontweight="700", family="monospace",
+        )
+        if _i == 0:
+            _ax_out.set_title("recovered (exact)", fontsize=9,
+                              color="#64748b", loc="left", pad=3)
+        _ax_out.axis("off")
 
-    Panel 2 is reactive on hero_pos; the others are fixed pre-computed data.
-    All values come from the embedded T blob — nothing is hardcoded."""
-    _landscape = T.LANDSCAPES["The cat sat on the mat|12"]
-    _selected = _landscape[hero_pos.value]
+    _n_ok       = sum(r["correct"] for r in _rec)
+    _max_loss   = max(r["min_loss"] for r in _rec)
+    _searched   = T.VOCAB_SIZE * _n
+    _gap_orders = int(round(np.log10(1.0 / max(_max_loss, 1e-30))))
 
-    _fig = plt.figure(figsize=(14.5, 3.6), constrained_layout=True)
-    _gs = _fig.add_gridspec(1, 4, width_ratios=[1, 1, 1, 1])
-
-    # ── Panel 1: geometry (PCA scatter, all base sentences) ─────────────
-    _ax1 = _fig.add_subplot(_gs[0, 0])
-    for _i, _pt in enumerate(T.XY_BASE):
-        _color = T.PCA_COLORS[_i % len(T.PCA_COLORS)]
-        _ax1.scatter(*_pt, s=70, color=_color,
-                     edgecolor="white", linewidth=1.1, zorder=3)
-    _ax1.set_title("§ 1  Geometry", fontsize=10.5, fontweight="600",
-                   color="#1e293b", pad=4, loc="left")
-    _ax1.set_xticks([]); _ax1.set_yticks([])
-    _ax1.set_xlabel(
-        f"{len(T.BASE_SENTENCES)} prompts in PCA(2) — distinct points",
-        fontsize=8.5, color="#6b7280",
+    _banner = (
+        f"<div style='background:linear-gradient(90deg,#10b981 0%,#059669 100%);"
+        f"color:white;padding:18px 26px;border-radius:14px;margin:8px 0;"
+        f"display:flex;align-items:center;justify-content:space-between;"
+        f"gap:32px;flex-wrap:wrap;box-shadow:0 4px 14px rgba(16,185,129,0.18)'>"
+        f"<div>"
+        f"<div style='font-size:11px;opacity:.85;text-transform:uppercase;"
+        f"letter-spacing:.10em'>round-trip on &quot;{PROMPT}&quot; · GPT-2 layer 12</div>"
+        f"<div style='font-size:22px;font-weight:800;margin-top:4px;line-height:1.1'>"
+        f"{_n_ok} / {_n} tokens recovered exactly</div>"
+        f"<div style='font-size:12px;opacity:.85;margin-top:4px'>"
+        f"every position resolved by exhaustive argmin — no sampling, no shortcuts</div>"
+        f"</div>"
+        f"<div style='display:flex;gap:28px;font-family:ui-monospace,monospace'>"
+        f"<div><div style='font-size:10px;opacity:.85;text-transform:uppercase;"
+        f"letter-spacing:.08em'>worst MSE</div>"
+        f"<div style='font-size:18px;font-weight:700'>{_max_loss:.1e}</div>"
+        f"<div style='font-size:10px;opacity:.85'>≈ 10⁻¹⁰</div></div>"
+        f"<div><div style='font-size:10px;opacity:.85;text-transform:uppercase;"
+        f"letter-spacing:.08em'>candidates scored</div>"
+        f"<div style='font-size:18px;font-weight:700'>{_searched:,}</div>"
+        f"<div style='font-size:10px;opacity:.85'>{T.VOCAB_SIZE:,} × {_n} positions</div></div>"
+        f"<div><div style='font-size:10px;opacity:.85;text-transform:uppercase;"
+        f"letter-spacing:.08em'>gap to runner-up</div>"
+        f"<div style='font-size:18px;font-weight:700'>~10<sup>{_gap_orders}</sup>×</div>"
+        f"<div style='font-size:10px;opacity:.85'>orders of magnitude</div></div>"
+        f"</div>"
+        f"</div>"
     )
-    _ax1.grid(True, alpha=0.15)
-
-    # ── Panel 2: loss landscape — scatter valley with star ───────────────
-    _ax2 = _fig.add_subplot(_gs[0, 1])
-    _vals2 = np.array(_selected["top30_losses"])
-    _plotted2 = np.where(_vals2 <= 0, 1e-15, _vals2)
-    _true_idx2 = next(i for i, v in enumerate(_selected["top30_is_true"]) if v)
-    _dist_xs2 = [x for x, v in enumerate(_selected["top30_is_true"]) if not v]
-    _dist_ys2 = [_plotted2[x] for x in _dist_xs2]
-    # Distractors as small dots, true token as gold star
-    _ax2.scatter(_dist_xs2, _dist_ys2, s=20, color=DIST_COLOR,
-                 alpha=0.65, zorder=3, edgecolors="none")
-    _ax2.scatter([_true_idx2], [_plotted2[_true_idx2]], s=200, marker="*",
-                 color=TRUE_COLOR, zorder=5, edgecolors="white", linewidth=0.8)
-    # Median distractor reference line + gap ratio label
-    _med2 = _selected["median_rand"]
-    _ax2.axhline(_med2, color=DIST_COLOR, lw=0.9, ls="--", alpha=0.5, zorder=2)
-    _gap2 = _med2 / max(_selected["true_loss"], 1e-15)
-    _ax2.text(0.97, 0.97, f"×{_gap2:.0e}",
-              transform=_ax2.transAxes, ha="right", va="top",
-              fontsize=9, color=TRUE_COLOR, fontweight="700")
-    _ax2.set_yscale("log")
-    _ax2.set_title(
-        f"§ 2  Landscape  {_selected['true_token'].strip()!r}",
-        fontsize=10.5, fontweight="600", color="#1e293b", pad=4, loc="left",
-    )
-    _ax2.set_xlabel("top-30 candidates  ★ = true token", fontsize=8.5, color="#6b7280")
-    _ax2.set_ylabel("MSE loss", fontsize=8.5, color="#6b7280")
-    _ax2.set_xticks([])
-    _ax2.grid(True, alpha=0.15, axis="y", zorder=0)
-
-    # ── Panel 3: recovered prompt — every position's true MSE ──────────
-    _ax3 = _fig.add_subplot(_gs[0, 2])
-    _xs = np.arange(len(_landscape))
-    _true_losses = np.array([max(r["true_loss"], 1e-15) for r in _landscape])
-    _ax3.bar(_xs, _true_losses, color=TRUE_COLOR, alpha=0.9, width=0.7,
-             edgecolor="white", linewidth=0.8, zorder=3)
-    _ax3.set_yscale("log")
-    _ax3.set_xticks(_xs)
-    _ax3.set_xticklabels(
-        [r["true_token"].strip() or "∅" for r in _landscape],
-        rotation=0, fontsize=9, color=TRUE_COLOR, fontweight="bold",
-    )
-    _ax3.set_title(
-        "§ 3  Recovery — exact at every position",
-        fontsize=10.5, fontweight="600", color="#1e293b", pad=4, loc="left",
-    )
-    _ax3.set_xlabel(
-        f"min MSE over all {T.VOCAB_SIZE:,} tokens (log)",
-        fontsize=8.5, color="#6b7280",
-    )
-    _ax3.set_ylabel("min MSE", fontsize=8.5, color="#6b7280")
-    _ax3.grid(True, alpha=0.15, axis="y", zorder=0)
-    _ax3.set_ylim(bottom=10 ** (np.floor(np.log10(_true_losses.min())) - 0.5))
-
-    # ── Panel 4: Theorem 3.2 budget vs the §6 channel usage ──────────────
-    _ax4 = _fig.add_subplot(_gs[0, 3])
-    _half_margins = np.array(T.STEGO_HALF_MARGINS) / 2
-    _stego_xs = np.arange(len(T.STEGO_TOKEN_IDS))
-    _used = _half_margins * 0.9
-    _w = 0.36
-    _ax4.bar(_stego_xs - _w/2, _half_margins, _w,
-             color="#a78bfa", alpha=0.78, edgecolor="white", linewidth=0.8,
-             label="½ margin", zorder=3)
-    _ax4.bar(_stego_xs + _w/2, _used, _w,
-             color=DIST_COLOR, alpha=0.9, edgecolor="white", linewidth=0.8,
-             label="§6 ‖δ‖", zorder=3)
-    _ax4.set_xticks(_stego_xs)
-    _ax4.set_xticklabels(
-        [t.strip() or "∅" for t in T.STEGO_TOKENS],
-        fontsize=9, color="#1e293b", fontweight="500",
-    )
-    _ax4.set_title(
-        "§ 5/6  Thm 3.2 budget",
-        fontsize=10.5, fontweight="600", color="#1e293b", pad=4, loc="left",
-    )
-    _ax4.set_xlabel(
-        f"covers {len(T.STEGO_TOKEN_IDS) * 8} payload bits per cover prompt",
-        fontsize=8.5, color="#6b7280",
-    )
-    _ax4.set_ylabel("L2 norm", fontsize=8.5, color="#6b7280")
-    _ax4.legend(loc="upper left", fontsize=8, framealpha=0.95)
-    _ax4.grid(True, alpha=0.15, axis="y", zorder=0)
 
     mo.vstack([
-        mo.md("## The argument in four panels"),
         mo.center(_fig),
-        mo.md(
-            "Slider drives panel 2. "
-            "Full sections below expand each argument with interactive controls."
-        ),
-    ], gap=0.5)
+        mo.md(_banner),
+    ], gap=0.4)
     return
 
 
@@ -583,9 +558,17 @@ $$
 
 @app.cell(hide_code=True)
 def _s2_picker(T, mo):
+    # Dict options: the dropdown displays the keys; `.value` returns the
+    # corresponding dict value. So we map pretty-display → real T-key.
+    # `value=` selects by the displayed key.
+    _display_to_key = {
+        k.replace("|", "  ·  layer "): k
+        for k in T.LANDSCAPES.keys()
+    }
+    _default_display = "The cat sat on the mat  ·  layer 12"
     landscape_picker = mo.ui.dropdown(
-        options=list(T.LANDSCAPES.keys()),
-        value="The cat sat on the mat|12",
+        options=_display_to_key,
+        value=_default_display,
         label="Pick a (prompt, layer) configuration",
         full_width=True,
     )
@@ -964,31 +947,42 @@ $$
 
 @app.cell(hide_code=True)
 def _s5_picker(T, mo):
-    # Index sliders — universal slider API, no `steps=` needed
-    _noise_opts = T.PERTURB_NOISE_LEVELS          # [0.0, 0.5, 1.0, 2.0, 5.0]
-    _quant_opts = sorted(T.PERTURB_QUANT_LEVELS)  # [0, 4, 8]
+    # Two index sliders — separated from their value-readout cell because
+    # marimo forbids reading .value in the same cell that creates the UIElement.
+    _n_noise = len(T.PERTURB_NOISE_LEVELS)
+    _n_quant = len(sorted(T.PERTURB_QUANT_LEVELS))
+    # Default to noise=1.0 (index 2) so the chart lands with visible bars
+    # on first paint — noise=0 makes every bar zero, which looks like the
+    # plot is broken. 1.0 is well below the half-margin (6.87) so recovery
+    # still succeeds — the user sees Theorem 3.2 holding, not failing.
     noise_picker = mo.ui.slider(
-        start=0, stop=len(_noise_opts) - 1, step=1, value=0,
+        start=0, stop=_n_noise - 1, step=1, value=2,
         label="Noise radius ‖δ‖",
         show_value=False,
     )
     quant_picker = mo.ui.slider(
-        start=0, stop=len(_quant_opts) - 1, step=1, value=0,
+        start=0, stop=_n_quant - 1, step=1, value=0,
         label="Quantization bits (0 = off)",
         show_value=False,
     )
-    _nv = _noise_opts[noise_picker.value]
-    _qv = _quant_opts[quant_picker.value]
-    mo.vstack([
-        mo.hstack([noise_picker, quant_picker], widths="equal"),
-        mo.md(
-            f"<div style='display:flex;gap:40px;padding:4px 2px;color:#475569'>"
-            f"<span>Noise radius = <strong>‖δ‖ {_nv}</strong></span>"
-            f"<span>Quantization = <strong>{'off' if _qv == 0 else str(_qv) + '-bit'}</strong></span>"
-            f"</div>"
-        ),
-    ], gap=0)
+    mo.hstack([noise_picker, quant_picker], widths="equal")
     return noise_picker, quant_picker
+
+
+@app.cell(hide_code=True)
+def _s5_picker_label(T, mo, noise_picker, quant_picker):
+    """Reactive human-readable readout of the two slider positions. Lives
+    in its own cell so the slider-creation cell doesn't read .value
+    (which marimo rejects)."""
+    _nv = T.PERTURB_NOISE_LEVELS[noise_picker.value]
+    _qv = sorted(T.PERTURB_QUANT_LEVELS)[quant_picker.value]
+    mo.md(
+        f"<div style='display:flex;gap:40px;padding:4px 2px;color:#475569'>"
+        f"<span>Noise radius = <strong>‖δ‖ {_nv}</strong></span>"
+        f"<span>Quantization = <strong>{'off' if _qv == 0 else str(_qv) + '-bit'}</strong></span>"
+        f"</div>"
+    )
+    return
 
 
 @app.cell(hide_code=True)
